@@ -1,0 +1,22 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Run tournament-dupr-ratings",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "${workspaceFolder}/bin/Debug/net8.0/tournament-dupr-ratings.dll",
+            "args": [
+                "--bearer-token", "",
+                "--activity-id", "",
+                "--zip", ""
+            ],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "env": {
+                "GOOGLE_API_KEY": ""
+            }
+        }
+    ]
+}
