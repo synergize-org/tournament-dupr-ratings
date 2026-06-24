@@ -141,6 +141,7 @@ foreach (var ep in eventPlayers)
     if (string.IsNullOrWhiteSpace(ep.PartnerFullName) || !ep.PartnerDuprActive)
     {
         team.Player2Name    = "N/A";
+        team.Player2DuprId  = "N/A";
         team.Player2Doubles = "N/A";
         team.Player2Singles = "N/A";
     }
