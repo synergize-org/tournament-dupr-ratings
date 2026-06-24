@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("tournament-dupr-ratings")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+ec353dcd5acd4cf441ed3d3472b5931b2489dc49")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+1901f9d0300c4b9300e8c4d1be8ac40c0f6f306f")]
 [assembly: System.Reflection.AssemblyProductAttribute("tournament-dupr-ratings")]
 [assembly: System.Reflection.AssemblyTitleAttribute("tournament-dupr-ratings")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
