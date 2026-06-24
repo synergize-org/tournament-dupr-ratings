@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="tournament-dupr-ratings.csproj" />
+  <Project Path="tournament-dupr-ratings.Tests/tournament-dupr-ratings.Tests.csproj" />
+</Solution>
