@@ -8,8 +8,7 @@ internal static class NewtonsoftHttpJson
 {
     private static readonly JsonSerializerSettings CamelCaseSettings = new()
     {
-        ContractResolver = new CamelCasePropertyNamesContractResolver(),
-        NullValueHandling = NullValueHandling.Ignore
+        ContractResolver = new CamelCasePropertyNamesContractResolver()
     };
 
     // Newtonsoft.Json is case-insensitive by default; no extra settings needed for deserialization.
