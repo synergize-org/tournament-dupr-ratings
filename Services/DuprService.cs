@@ -1,23 +1,11 @@
 using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
-using System.Text.Json;
 using TournamentDuprRatings.Models;
 
 namespace TournamentDuprRatings.Services;
 
 public class DuprService(HttpClient httpClient)
 {
-    private static readonly JsonSerializerOptions CamelCase = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-    };
-
-    private static readonly JsonSerializerOptions CaseInsensitive = new()
-    {
-        PropertyNameCaseInsensitive = true
-    };
-
     public async Task<List<DuprPlayerHit>> SearchAsync(
         string fullName, double lat, double lng, string bearerToken)
     {
@@ -29,7 +17,7 @@ public class DuprService(HttpClient httpClient)
 
         using var httpRequest = new HttpRequestMessage(HttpMethod.Post, "https://api.dupr.gg/player/v1.0/search")
         {
-            Content = JsonContent.Create(request, options: CamelCase)
+            Content = NewtonsoftHttpJson.CreateJsonContent(request)
         };
         httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
 
@@ -44,7 +32,7 @@ public class DuprService(HttpClient httpClient)
             throw new Exception($"DUPR API error {(int)httpResponse.StatusCode}: {body}");
         }
 
-        var result = await httpResponse.Content.ReadFromJsonAsync<DuprSearchResponse>(CaseInsensitive);
+        var result = await NewtonsoftHttpJson.ReadFromJsonAsync<DuprSearchResponse>(httpResponse.Content);
         return result?.Result?.Hits ?? [];
     }
 }

@@ -36,11 +36,11 @@ public class DuprServiceTests
 
         var service = new DuprService(ClientReturning(json));
 
-        // Act – must not throw; numeric id should coerce to its string form
+        // Act – must not throw; numeric id deserializes as long?
         var hits = await service.SearchAsync("John Doe", 0.0, 0.0, "fake-token");
 
         Assert.Single(hits);
-        Assert.Equal("123456789", hits[0].Id);
+        Assert.Equal(123456789L, hits[0].Id);
     }
 
     [Fact]
