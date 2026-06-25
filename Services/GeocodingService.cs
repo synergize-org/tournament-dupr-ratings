@@ -1,6 +1,3 @@
-using System.Net.Http.Json;
-using System.Text.Json.Serialization;
-
 namespace TournamentDuprRatings.Services;
 
 public class GeocodingService(HttpClient httpClient, string apiKey)
@@ -10,7 +7,9 @@ public class GeocodingService(HttpClient httpClient, string apiKey)
         var url = $"https://maps.googleapis.com/maps/api/geocode/json" +
                   $"?address={Uri.EscapeDataString(zip)}&key={Uri.EscapeDataString(apiKey)}";
 
-        var response = await httpClient.GetFromJsonAsync<GeocodeResponse>(url)
+        var httpResponse = await httpClient.GetAsync(url);
+        httpResponse.EnsureSuccessStatusCode();
+        var response = await NewtonsoftHttpJson.ReadFromJsonAsync<GeocodeResponse>(httpResponse.Content)
             ?? throw new Exception("Null response from Geocoding API.");
 
         if (response.Status == "ZERO_RESULTS" || response.Results.Count == 0)
@@ -27,24 +26,25 @@ public class GeocodingService(HttpClient httpClient, string apiKey)
 public class ZeroResultsException() : Exception("Geocoding returned no results for that zip code.");
 
 // Response shape — file-scoped to avoid polluting namespace
+// Newtonsoft.Json is case-insensitive by default; no property attributes needed.
 file class GeocodeResponse
 {
-    [JsonPropertyName("status")]  public string Status { get; set; } = "";
-    [JsonPropertyName("results")] public List<GeocodeResult> Results { get; set; } = [];
+    public string Status { get; set; } = "";
+    public List<GeocodeResult> Results { get; set; } = [];
 }
 
 file class GeocodeResult
 {
-    [JsonPropertyName("geometry")] public GeocodeGeometry Geometry { get; set; } = new();
+    public GeocodeGeometry Geometry { get; set; } = new();
 }
 
 file class GeocodeGeometry
 {
-    [JsonPropertyName("location")] public GeocodeLocation Location { get; set; } = new();
+    public GeocodeLocation Location { get; set; } = new();
 }
 
 file class GeocodeLocation
 {
-    [JsonPropertyName("lat")] public double Lat { get; set; }
-    [JsonPropertyName("lng")] public double Lng { get; set; }
+    public double Lat { get; set; }
+    public double Lng { get; set; }
 }
