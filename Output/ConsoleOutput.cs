@@ -26,4 +26,30 @@ public static class ConsoleOutput
             Console.WriteLine();
         }
     }
+
+    private static void PrintOutOfBoundsTable(string eventTitle, List<DuprPlayerHit> playerHits, string boundaryGroup)
+    {
+        Console.WriteLine();
+        Console.WriteLine(boundaryGroup);
+        Console.WriteLine(eventTitle);
+        Console.WriteLine(
+            $"{"#",-4} {"Name",-26} {"DUPR ID",-12} {"Doubles",-8} {"Singles",-8}");
+
+        for (int i = 0; i < playerHits.Count; i++)
+        {
+            var t = playerHits[i];
+            Console.WriteLine(
+                $"{i + 1,-4} {t.FullName,-26} {t.DuprId ?? "",-12} {t.Ratings?.Doubles,-8} {t.Ratings?.Singles,-8} ");
+        }
+    }
+
+    public static void PrintOutOfBoundsTableLower(string eventTitle, List<DuprPlayerHit> playerHits)
+    {
+        PrintOutOfBoundsTable(eventTitle, playerHits, "DUPR Ratings Below Expected Threshold");
+    }
+
+    public static void PrintOutOfBoundsTableUpper (string eventTitle, List<DuprPlayerHit> playerHits)
+    {
+        PrintOutOfBoundsTable(eventTitle, playerHits, "DUPR Ratings Above Expected Threshold");
+    }
 }

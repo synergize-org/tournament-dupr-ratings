@@ -2,8 +2,15 @@ namespace TournamentDuprRatings.Services;
 
 public class GeocodingService(HttpClient httpClient, string apiKey)
 {
+
+    private static Dictionary<string, (double Lat, double Lng)> _geoCodeCache = new();
     public async Task<(double Lat, double Lng)> GeocodeZipAsync(string zip)
     {
+        if (_geoCodeCache.TryGetValue(zip, out var cached))
+        {
+            return cached;
+        }
+
         var url = $"https://maps.googleapis.com/maps/api/geocode/json" +
                   $"?address={Uri.EscapeDataString(zip)}&key={Uri.EscapeDataString(apiKey)}";
 
@@ -18,15 +25,13 @@ public class GeocodingService(HttpClient httpClient, string apiKey)
         if (response.Status != "OK")
             throw new Exception($"Geocoding API error: {response.Status}");
 
-        var loc = response.Results[0].Geometry.Location;
-        return (loc.Lat, loc.Lng);
+        var loc = response.Results.FirstOrDefault()?.Geometry.Location;
+        return _geoCodeCache[zip] = (loc?.Lat ?? 0, loc?.Lng ?? 0);
     }
 }
 
 public class ZeroResultsException() : Exception("Geocoding returned no results for that zip code.");
 
-// Response shape — file-scoped to avoid polluting namespace
-// Newtonsoft.Json is case-insensitive by default; no property attributes needed.
 file class GeocodeResponse
 {
     public string Status { get; set; } = "";

@@ -6,9 +6,17 @@ namespace TournamentDuprRatings.Services;
 
 public class DuprService(HttpClient httpClient)
 {
+
+    private static Dictionary<string, List<DuprPlayerHit>> _playerSearchCache = new Dictionary<string, List<DuprPlayerHit>>();
+
     public async Task<List<DuprPlayerHit>> SearchAsync(
         string fullName, double lat, double lng, string bearerToken)
     {
+        if (_playerSearchCache.ContainsKey(fullName))
+        {
+            return _playerSearchCache[fullName];
+        }
+
         var request = new DuprSearchRequest
         {
             Query = fullName,
@@ -33,7 +41,7 @@ public class DuprService(HttpClient httpClient)
         }
 
         var result = await NewtonsoftHttpJson.ReadFromJsonAsync<DuprSearchResponse>(httpResponse.Content);
-        return result?.Result?.Hits ?? [];
+        return _playerSearchCache[fullName] = result?.Result?.Hits ?? [];
     }
 }
 

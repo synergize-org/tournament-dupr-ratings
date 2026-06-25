@@ -1,7 +1,4 @@
-﻿using System.Numerics;
-using System.Runtime.CompilerServices;
-using System.Threading.Channels;
-using TournamentDuprRatings.Models;
+﻿using TournamentDuprRatings.Models;
 using TournamentDuprRatings.Models.PbTournamentsModels;
 using TournamentDuprRatings.Output;
 using TournamentDuprRatings.Services;
@@ -84,12 +81,16 @@ internal static class Program
         var tournaments = new Dictionary<string, List<EventPlayer>>();
         var tournamentInfo = new Dictionary<string, TournamentEvent>();
         var outPutInfo = new List<EventResults>();
+        var cachedDuprId = new Dictionary<string, DuprPlayerHit?>();
+        var lowerBoundary = new Dictionary<string, List<DuprPlayerHit>>();
+        var upperBoundary = new Dictionary<string, List<DuprPlayerHit>>();
 
         foreach (var group in fullTournamentDetails.Events)
         {
             foreach (var bracket in group.Events)
             {
                 tournamentInfo[bracket.ActivityId] = bracket;
+                var skillGroup = GetSkillGroup(bracket.SkillGroup);
 
                 // Fetch event players
                 Console.WriteLine("Fetching tournament players...");
@@ -124,10 +125,22 @@ internal static class Program
                 {
                     Console.Write($"Looking up: https://pickleball.com/players/{player.Slug} ");
 
-                    List<DuprPlayerHit> hits;
+                    var htmlScraper = new PickleballPlayerScraper();
+                    var playerProfile = await htmlScraper.GetPlayerProfileAsync(player.Slug);                    
+
+                    List<DuprPlayerHit> hits = new List<DuprPlayerHit>();
+                    DuprPlayerHit duprPlayerHit = new DuprPlayerHit();
+              
                     try
                     {
-                        hits = await duprService.SearchAsync(player.FullName, lat, lng, bearerToken);
+                        if (cachedDuprId.ContainsKey(playerProfile.DuprId))
+                        {
+                            playerResults[player.FullName] = cachedDuprId[player.Slug];
+                        }
+                        else
+                        {
+                            hits = await duprService.SearchAsync(playerProfile.DuprId, lat, lng, bearerToken);
+                        }                        
                     }
                     catch (DuprUnauthorizedException)
                     {
@@ -142,48 +155,59 @@ internal static class Program
 
                     if (hits.Count == 1)
                     {
-                        Console.WriteLine($"Found: {hits[0].FullName}");
-                        playerResults[player.FullName] = hits[0];
+                        Console.WriteLine($"Found: {hits.FirstOrDefault()?.FullName}");
+                        var playerDupr = playerResults[player.FullName] = hits.FirstOrDefault();
 
-                    }
-                    else if (hits.Count == 0)
-                    {
-                        Console.WriteLine($"Didn't find {player.FullName}.");
-                        Console.WriteLine($"Locate the correct player's DUPR ID and enter it below: ");
-                        var selectedDuprId = Console.ReadLine()?.Trim() ?? "";
-                        var duprIdSearch = await duprService.SearchAsync(selectedDuprId, lat, lng, bearerToken);
-                        playerResults[player.FullName] = duprIdSearch.FirstOrDefault();
-                    }
-                    else
-                    {
-                        Console.WriteLine($"{hits.Count} matches — please select:");
-                        for (int i = 0; i < hits.Count; i++)
+                        if (skillGroup.lower != double.NaN && skillGroup.upper != double.NaN)
                         {
-                            var h = hits[i];
-                            Console.WriteLine($"  {i + 1}. {h.FullName} | {h.ShortAddress} | Age: {h.Age} " +
-                                              $"| Dbl: {h.Ratings?.Doubles} | Sgl: {h.Ratings?.Singles}" +
-                                              $"| DuprId: {h.DuprId}");
-                        }
-                        Console.Write("Enter number to select, or 0 to skip or press enter to enter DuprId: ");
-                        var choice = Console.ReadLine()?.Trim();
+                            switch (bracket.Format)
+                            {
+                                case "Doubles":
+                                    var doublesRating = double.TryParse(playerDupr?.Ratings?.Doubles, out var dblRating) ? dblRating : (double?)null;
+                                    if (doublesRating > skillGroup.upper)
+                                    {
+                                        if (!upperBoundary.ContainsKey(bracket.Title))
+                                        {
+                                            upperBoundary[bracket.Title] = new List<DuprPlayerHit>();
+                                        }
 
-                        if (string.IsNullOrEmpty(choice))
-                        {
-                            Console.WriteLine($"Locate the correct player's DUPR ID and enter it below: ");
-                            var selectedDuprId = Console.ReadLine()?.Trim() ?? "";
-                            var duprIdSearch = await duprService.SearchAsync(selectedDuprId, lat, lng, bearerToken);
-                            playerResults[player.FullName] = duprIdSearch.FirstOrDefault();
-                        }
-                        else if (int.TryParse(choice, out var idx) && idx >= 1 && idx <= hits.Count)
-                        {
-                            playerResults[player.FullName] = hits[idx - 1];
-                        }
-                        else
-                        {
-                            Console.WriteLine("Skipped.");
-                            skippedPlayers.Add(player.FullName);
-                            playerResults[player.FullName] = null;
-                        }
+                                        upperBoundary[bracket.Title].Add(playerDupr);
+                                    }
+
+                                    if (doublesRating < skillGroup.lower)
+                                    {
+                                        if (!lowerBoundary.ContainsKey(bracket.Title))
+                                        {
+                                            lowerBoundary[bracket.Title] = new List<DuprPlayerHit>();
+                                        }
+
+                                        lowerBoundary[bracket.Title].Add(playerDupr);
+                                    }
+                                    break;
+                                case "Singles":
+                                    var singlesRating = double.TryParse(playerDupr?.Ratings?.Singles, out var sglRating) ? sglRating : (double?)null;
+                                    if (singlesRating > skillGroup.upper)
+                                    {
+                                        if (!upperBoundary.ContainsKey(bracket.Title))
+                                        {
+                                            upperBoundary[bracket.Title] = new List<DuprPlayerHit>();
+                                        }
+
+                                        upperBoundary[bracket.Title].Add(playerDupr);
+                                    }
+
+                                    if (singlesRating < skillGroup.lower)
+                                    {
+                                        if (!lowerBoundary.ContainsKey(bracket.Title))
+                                        {
+                                            lowerBoundary[bracket.Title] = new List<DuprPlayerHit>();
+                                        }
+
+                                        lowerBoundary[bracket.Title].Add(playerDupr);
+                                    }
+                                    break;
+                            }
+                        }                        
                     }
                 }
 
@@ -228,7 +252,22 @@ internal static class Program
 
         // Output
         ConsoleOutput.PrintTable(outPutInfo);
-        //CsvOutput.WriteFile(teams, activityId);
+
+        if (lowerBoundary.Count > 0)
+        {
+            foreach (var kvp in lowerBoundary)
+            {
+                ConsoleOutput.PrintOutOfBoundsTableLower(kvp.Key, kvp.Value);
+            }
+        }
+
+        if (upperBoundary.Count > 0)
+        {
+            foreach (var kvp in upperBoundary)
+            {
+                ConsoleOutput.PrintOutOfBoundsTableUpper(kvp.Key, kvp.Value);
+            }
+        }
 
         return 0;
     }
@@ -285,5 +324,24 @@ internal static class Program
         return ratingType == "Doubles"
             ? hit.Ratings?.Doubles ?? ""
             : hit.Ratings?.Singles ?? "";
+    }
+
+    private static (double lower, double upper) GetSkillGroup(string skillGroup)
+    {
+        var skillGroupLower = skillGroup.ToLower();
+        if (skillGroupLower.Contains("to"))
+        {
+            var split = skillGroupLower.Split("to");
+            return (double.Parse(split[0].Trim()), double.Parse(split[1].Trim()));
+        }
+
+        var skillGroupParsed = double.TryParse(skillGroup, out var parsedValue);
+        
+        if (!skillGroupParsed)
+        {
+            return (double.NaN, double.NaN);
+        }
+
+        return (parsedValue, parsedValue + 0.5);
     }
 }
