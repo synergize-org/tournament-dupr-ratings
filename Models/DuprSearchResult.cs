@@ -12,7 +12,7 @@ public class DuprSearchResultWrapper
 
 public class DuprPlayerHit
 {
-    public string? Id { get; set; }
+    public long? Id { get; set; }
     public string? FullName { get; set; }
     public string? ShortAddress { get; set; }
     public int? Age { get; set; }

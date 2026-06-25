@@ -1,16 +1,10 @@
-using System.Text.Json;
-using System.Text.Json.Serialization;
+using Newtonsoft.Json;
 using TournamentDuprRatings.Models;
 
 namespace TournamentDuprRatings.Services;
 
 public class PickleballTournamentsService(HttpClient httpClient)
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true
-    };
-
     public async Task<List<EventPlayer>> GetEventPlayersAsync(string activityId)
     {
         var url = $"https://pickleballtournaments.com/tournaments/api/eventPlayers" +
@@ -29,17 +23,18 @@ public class PickleballTournamentsService(HttpClient httpClient)
         // Try direct array first; fall back to { "data": [...] } wrapper
         try
         {
-            return JsonSerializer.Deserialize<List<EventPlayer>>(json, JsonOptions) ?? [];
+            return NewtonsoftHttpJson.DeserializeString<List<EventPlayer>>(json) ?? [];
         }
         catch (JsonException)
         {
-            var wrapped = JsonSerializer.Deserialize<EventPlayersResponse>(json, JsonOptions);
+            var wrapped = NewtonsoftHttpJson.DeserializeString<EventPlayersResponse>(json);
             return wrapped?.Data ?? [];
         }
     }
 }
 
+// Newtonsoft.Json is case-insensitive by default; no property attribute needed.
 file class EventPlayersResponse
 {
-    [JsonPropertyName("data")] public List<EventPlayer> Data { get; set; } = [];
+    public List<EventPlayer> Data { get; set; } = [];
 }
