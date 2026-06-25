@@ -1,12 +1,12 @@
 {
   "profiles": {
     "LT Parker": {
-      "commandName": "Project",
-      "commandLineArgs": "--bearer-token eyJhbGciOiJSUzUxMiJ9.eyJpc3MiOiJodHRwczovL2R1cHIuZ2ciLCJpYXQiOjE3NzUyNzY1MjYsImp0aSI6IjY5NDM3MDM3NDEiLCJzdWIiOiJaWEp5TUhJeE5ESkFaMjFoYVd3dVkyOXQiLCJ0b2tlbl90eXBlIjoiQUNDRVNTIiwiZXhwIjoxNzg0OTMwNDk0fQ.Z512S8SuQ3mSfykj4kVE0QrOPu498tVMfwHNxMbUmBWtKGgacxtY64fOZNkTBaoZLOt6U0rjnA49i0gbMVMTCCbLJOPIDUygZdsLr6viTp7u9Tv4w8iJQI7Cx50r9G47UalIElmpFh7N3yoIhQasaZHq7GjbN96yzOltjHBrFTB0yfh9kQrpHAAUMRzRiciLBJ-k7H_YiJHbWujcNUmrvhKoVrkbuHaMMx4DrxZeV5cuGEEdSP_WLTh5iA1ZBby7-IEW0kUCeBcSA7LyANZ4_ZX8RbRlEssBXpRWiVsXeI6mo0XJtcvGOoC14OJVGXzeo3wBF1znjc3zfxvuoDciRw --activity-id 70695CD7-3F83-43AD-B214-E4FDBF9639CC --zip 80138"
+        "commandName": "Project",
+        "commandLineArgs": "--zip 80138 --tournament-name mens-doubles-3-25-3-75-tournament"
     },
     "Colorado Cup 3.5 Mixed": {
         "commandName": "Project",
-        "commandLineArgs": "--bearer-token eyJhbGciOiJSUzUxMiJ9.eyJpc3MiOiJodHRwczovL2R1cHIuZ2ciLCJpYXQiOjE3NzUyNzY1MjYsImp0aSI6IjY5NDM3MDM3NDEiLCJzdWIiOiJaWEp5TUhJeE5ESkFaMjFoYVd3dVkyOXQiLCJ0b2tlbl90eXBlIjoiQUNDRVNTIiwiZXhwIjoxNzg0OTMwNDk0fQ.Z512S8SuQ3mSfykj4kVE0QrOPu498tVMfwHNxMbUmBWtKGgacxtY64fOZNkTBaoZLOt6U0rjnA49i0gbMVMTCCbLJOPIDUygZdsLr6viTp7u9Tv4w8iJQI7Cx50r9G47UalIElmpFh7N3yoIhQasaZHq7GjbN96yzOltjHBrFTB0yfh9kQrpHAAUMRzRiciLBJ-k7H_YiJHbWujcNUmrvhKoVrkbuHaMMx4DrxZeV5cuGEEdSP_WLTh5iA1ZBby7-IEW0kUCeBcSA7LyANZ4_ZX8RbRlEssBXpRWiVsXeI6mo0XJtcvGOoC14OJVGXzeo3wBF1znjc3zfxvuoDciRw --activity-id 3C1BAC67-A9C8-422F-871D-88154D91B1A3 --zip 80110"
+        "commandLineArgs": "--zip 80110 --tournament-name colorado-cup-denver-qualifier-by-dpc"
     }
   }
 }
