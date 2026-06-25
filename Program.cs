@@ -28,6 +28,12 @@ internal static class Program
             bearerToken = ReadMaskedInput();
         }
 
+        var tournamentName = GetArg(args, "tournament-name");
+        if (string.IsNullOrEmpty(tournamentName)) { 
+            Console.Write("Tournament name (slug): ");
+            tournamentName = Console.ReadLine()?.Trim() ?? "";
+        }
+
         var httpClient = new HttpClient();
         var geocodingService = new GeocodingService(httpClient, googleApiKey);
 
@@ -74,7 +80,7 @@ internal static class Program
         }
 
         var tournamentService = new PickleballTournamentsService(httpClient);
-        var fullTournamentDetails = await tournamentService.GetEventInfo("colorado-cup-denver-qualifier-by-dpc");
+        var fullTournamentDetails = await tournamentService.GetEventInfo(tournamentName);
         var tournaments = new Dictionary<string, List<EventPlayer>>();
         var tournamentInfo = new Dictionary<string, TournamentEvent>();
         var outPutInfo = new List<EventResults>();
