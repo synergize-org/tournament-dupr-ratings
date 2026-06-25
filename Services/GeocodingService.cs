@@ -1,3 +1,5 @@
+using TournamentDuprRatings.Models.Geocoding;
+
 namespace TournamentDuprRatings.Services;
 
 public class GeocodingService(HttpClient httpClient, string apiKey)
@@ -31,25 +33,3 @@ public class GeocodingService(HttpClient httpClient, string apiKey)
 }
 
 public class ZeroResultsException() : Exception("Geocoding returned no results for that zip code.");
-
-file class GeocodeResponse
-{
-    public string Status { get; set; } = "";
-    public List<GeocodeResult> Results { get; set; } = [];
-}
-
-file class GeocodeResult
-{
-    public GeocodeGeometry Geometry { get; set; } = new();
-}
-
-file class GeocodeGeometry
-{
-    public GeocodeLocation Location { get; set; } = new();
-}
-
-file class GeocodeLocation
-{
-    public double Lat { get; set; }
-    public double Lng { get; set; }
-}

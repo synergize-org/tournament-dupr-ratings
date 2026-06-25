@@ -1,4 +1,5 @@
-﻿using TournamentDuprRatings.Models;
+﻿using TournamentDuprRatings.Helpers;
+using TournamentDuprRatings.Models;
 using TournamentDuprRatings.Models.PbTournamentsModels;
 using TournamentDuprRatings.Output;
 using TournamentDuprRatings.Services;
@@ -22,7 +23,7 @@ internal static class Program
         if (string.IsNullOrWhiteSpace(bearerToken))
         {
             Console.Write("DUPR Bearer Token: ");
-            bearerToken = ReadMaskedInput();
+            bearerToken = OutputHelpers.ReadMaskedInput();
         }
 
         var tournamentName = GetArg(args, "tournament-name");
@@ -90,7 +91,7 @@ internal static class Program
             foreach (var bracket in group.Events)
             {
                 tournamentInfo[bracket.ActivityId] = bracket;
-                var skillGroup = GetSkillGroup(bracket.SkillGroup);
+                var skillGroup = RatingCalculationHelpers.GetSkillGroup(bracket.SkillGroup);
 
                 // Fetch event players
                 Console.WriteLine("Fetching tournament players...");
@@ -160,54 +161,15 @@ internal static class Program
 
                         if (skillGroup.lower != double.NaN && skillGroup.upper != double.NaN)
                         {
-                            switch (bracket.Format)
+                            var rating = bracket.Format switch
                             {
-                                case "Doubles":
-                                    var doublesRating = double.TryParse(playerDupr?.Ratings?.Doubles, out var dblRating) ? dblRating : (double?)null;
-                                    if (doublesRating > skillGroup.upper)
-                                    {
-                                        if (!upperBoundary.ContainsKey(bracket.Title))
-                                        {
-                                            upperBoundary[bracket.Title] = new List<DuprPlayerHit>();
-                                        }
+                                "Doubles" => double.TryParse(playerDupr?.Ratings?.Doubles, out var doubles) ? doubles : (double?)null,
+                                "Singles" => double.TryParse(playerDupr?.Ratings?.Singles, out var singles) ? singles : (double?)null,
+                                _ => null
+                            };
 
-                                        upperBoundary[bracket.Title].Add(playerDupr);
-                                    }
-
-                                    if (doublesRating < skillGroup.lower)
-                                    {
-                                        if (!lowerBoundary.ContainsKey(bracket.Title))
-                                        {
-                                            lowerBoundary[bracket.Title] = new List<DuprPlayerHit>();
-                                        }
-
-                                        lowerBoundary[bracket.Title].Add(playerDupr);
-                                    }
-                                    break;
-                                case "Singles":
-                                    var singlesRating = double.TryParse(playerDupr?.Ratings?.Singles, out var sglRating) ? sglRating : (double?)null;
-                                    if (singlesRating > skillGroup.upper)
-                                    {
-                                        if (!upperBoundary.ContainsKey(bracket.Title))
-                                        {
-                                            upperBoundary[bracket.Title] = new List<DuprPlayerHit>();
-                                        }
-
-                                        upperBoundary[bracket.Title].Add(playerDupr);
-                                    }
-
-                                    if (singlesRating < skillGroup.lower)
-                                    {
-                                        if (!lowerBoundary.ContainsKey(bracket.Title))
-                                        {
-                                            lowerBoundary[bracket.Title] = new List<DuprPlayerHit>();
-                                        }
-
-                                        lowerBoundary[bracket.Title].Add(playerDupr);
-                                    }
-                                    break;
-                            }
-                        }                        
+                            RatingCalculationHelpers.CheckRatingBoundary(bracket.Title, rating, skillGroup, playerDupr, upperBoundary, lowerBoundary);
+                        }
                     }
                 }
 
@@ -218,9 +180,9 @@ internal static class Program
                     var team = new TeamResult
                     {
                         Player1Name = ep.PlayerFullName ?? "",
-                        Player1Doubles = ResolveRatingDisplay(ep.PlayerFullName, "Doubles", playerResults, skippedPlayers),
-                        Player1Singles = ResolveRatingDisplay(ep.PlayerFullName, "Singles", playerResults, skippedPlayers),
-                        Player1DuprId = ResolveHit(ep.PlayerFullName, playerResults)?.DuprId
+                        Player1Doubles = OutputHelpers.ResolveRatingDisplay(ep.PlayerFullName, "Doubles", playerResults, skippedPlayers),
+                        Player1Singles = OutputHelpers.ResolveRatingDisplay(ep.PlayerFullName, "Singles", playerResults, skippedPlayers),
+                        Player1DuprId = OutputHelpers.ResolveHit(ep.PlayerFullName, playerResults)?.DuprId
                     };
 
                     if (string.IsNullOrWhiteSpace(ep.PartnerFullName) || !ep.PartnerDuprActive)
@@ -233,9 +195,9 @@ internal static class Program
                     else
                     {
                         team.Player2Name = ep.PartnerFullName;
-                        team.Player2Doubles = ResolveRatingDisplay(ep.PartnerFullName, "Doubles", playerResults, skippedPlayers);
-                        team.Player2Singles = ResolveRatingDisplay(ep.PartnerFullName, "Singles", playerResults, skippedPlayers);
-                        team.Player2DuprId = ResolveHit(ep.PartnerFullName, playerResults)?.DuprId;
+                        team.Player2Doubles = OutputHelpers.ResolveRatingDisplay(ep.PartnerFullName, "Doubles", playerResults, skippedPlayers);
+                        team.Player2Singles = OutputHelpers.ResolveRatingDisplay(ep.PartnerFullName, "Singles", playerResults, skippedPlayers);
+                        team.Player2DuprId = OutputHelpers.ResolveHit(ep.PartnerFullName, playerResults)?.DuprId;
                     }
 
                     teams.Add(team);
@@ -272,76 +234,10 @@ internal static class Program
         return 0;
     }
 
-    // ── Helpers ────────────────────────────────────────────────────────────────
-
     private static string? GetArg(string[] args, string name)
     {
         var flag = $"--{name}";
         var idx = Array.IndexOf(args, flag);
         return idx >= 0 && idx + 1 < args.Length ? args[idx + 1] : null;
-    }
-
-    private static string ReadMaskedInput()
-    {
-        var sb = new System.Text.StringBuilder();
-        ConsoleKeyInfo key;
-        do
-        {
-            key = Console.ReadKey(intercept: true);
-            if (key.Key != ConsoleKey.Backspace && key.Key != ConsoleKey.Enter)
-            {
-                sb.Append(key.KeyChar);
-                Console.Write("*");
-            }
-            else if (key.Key == ConsoleKey.Backspace && sb.Length > 0)
-            {
-                sb.Remove(sb.Length - 1, 1);
-                Console.Write("\b \b");
-            }
-        } while (key.Key != ConsoleKey.Enter);
-        Console.WriteLine();
-        return sb.ToString();
-    }
-
-    private static DuprPlayerHit? ResolveHit(
-        string? name,
-        Dictionary<string, DuprPlayerHit?> results)
-    {
-        if (string.IsNullOrWhiteSpace(name)) return null;
-        return results.TryGetValue(name, out var hit) ? hit : null;
-    }
-
-    private static string ResolveRatingDisplay(
-        string? name,
-        string ratingType,
-        Dictionary<string, DuprPlayerHit?> results,
-        HashSet<string> skipped)
-    {
-        if (string.IsNullOrWhiteSpace(name)) return "Not Found";
-        if (skipped.Contains(name)) return "Skipped";
-        if (!results.TryGetValue(name, out var hit) || hit == null) return "Not Found";
-
-        return ratingType == "Doubles"
-            ? hit.Ratings?.Doubles ?? ""
-            : hit.Ratings?.Singles ?? "";
-    }
-
-    private static (double lower, double upper) GetSkillGroup(string skillGroup)
-    {
-        var skillGroupLower = skillGroup.ToLower();
-        if (skillGroupLower.Contains("to"))
-        {
-            var split = skillGroupLower.Split("to");
-            return (double.Parse(split[0].Trim()), double.Parse(split[1].Trim()));
-        }
-
-        var skillGroupParsed = double.TryParse(skillGroup, out var parsedValue);
-        
-        if (!skillGroupParsed)
-        {
-            return (double.NaN, double.NaN);
-        }
-
-        return (parsedValue, parsedValue + 0.5);
     }
 }
