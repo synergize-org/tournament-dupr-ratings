@@ -22,8 +22,22 @@ public class DuprPlayerHit
 
 public class DuprRatings
 {
-    public double? Doubles { get; set; }
-    public bool DoublesVerified { get; set; }
-    public double? Singles { get; set; }
-    public bool SinglesVerified { get; set; }
+    public string? Doubles { get; set; }
+    public string? DoublesVerified { get; set; }
+    public string? Singles { get; set; }
+    public string? SinglesVerified { get; set; }
+
+    public double DecimalDoublesDupr()
+    {
+        if (double.TryParse(Doubles, out var result))
+            return result;
+        return 0.0;
+    }
+
+    public double DecimalSinglesDupr()
+    {
+        if (double.TryParse(Singles, out var result))
+            return result;
+        return 0.0;
+    }
 }

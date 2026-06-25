@@ -22,7 +22,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\tournament-dupr-ratings.csproj" />
+    <ProjectReference Include="..\TournamentDuprRatings.csproj" />
   </ItemGroup>
 
 </Project>
