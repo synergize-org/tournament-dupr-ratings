@@ -1,4 +1,5 @@
-﻿using TournamentDuprRatings.Models;
+﻿using TournamentDuprRatings.Constants;
+using TournamentDuprRatings.Models;
 
 namespace TournamentDuprRatings.Helpers
 {
@@ -34,19 +35,19 @@ namespace TournamentDuprRatings.Helpers
             return results.TryGetValue(name, out var hit) ? hit : null;
         }
 
-        public static string ResolveRatingDisplay(
+        public static double ResolveRatingDisplay(
             string? name,
             string ratingType,
             Dictionary<string, DuprPlayerHit?> results,
             HashSet<string> skipped)
         {
-            if (string.IsNullOrWhiteSpace(name)) return "Not Found";
-            if (skipped.Contains(name)) return "Skipped";
-            if (!results.TryGetValue(name, out var hit) || hit == null) return "Not Found";
+            if (string.IsNullOrWhiteSpace(name)) return DoubleConstants.NotFoundRating;
+            if (skipped.Contains(name)) return DoubleConstants.SkippedRating;
+            if (!results.TryGetValue(name, out var hit) || hit == null) return DoubleConstants.NotFoundRating   ;
 
             return ratingType == "Doubles"
-                ? hit.Ratings?.Doubles ?? ""
-                : hit.Ratings?.Singles ?? "";
+                ? double.TryParse(hit.Ratings?.Doubles, out var doubles) ? doubles : 0.0
+                : double.TryParse(hit.Ratings?.Singles, out var singles) ? singles : 0.0;
         }
     }
 }

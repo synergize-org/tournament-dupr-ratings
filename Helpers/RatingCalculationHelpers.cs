@@ -11,11 +11,25 @@ namespace TournamentDuprRatings.Helpers
     {
         public static (double lower, double upper) GetSkillGroup(string skillGroup)
         {
+            Console.WriteLine($"Parsing skill group: {skillGroup}");
+
             var skillGroupLower = skillGroup.ToLower();
             if (skillGroupLower.Contains("to"))
             {
                 var split = skillGroupLower.Split("to");
                 return (double.Parse(split[0].Trim()), double.Parse(split[1].Trim()));
+            }
+
+            if (skillGroupLower.Contains("and under"))
+            {
+                var split = skillGroupLower.Split("and under");
+                return (0.0, double.Parse(split[0].Trim()));
+            }
+
+            if (skillGroupLower.Contains("and above"))
+            {
+                var split = skillGroupLower.Split("and above");
+                return (double.Parse(split[0].Trim()), 10.0);
             }
 
             var skillGroupParsed = double.TryParse(skillGroup, out var parsedValue);

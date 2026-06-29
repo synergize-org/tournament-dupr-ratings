@@ -11,4 +11,5 @@ public class EventPlayer
     public bool PlayerDuprActive { get; set; }
     public bool PartnerDuprActive { get; set; }
     public bool NeedAPartner { get; set; }
+    public bool IsOnWaitlist { get; set; }
 }

@@ -1,6 +1,7 @@
-﻿using TournamentDuprRatings.Helpers;
+﻿using Newtonsoft.Json;
+using TournamentDuprRatings.Constants;
+using TournamentDuprRatings.Helpers;
 using TournamentDuprRatings.Models;
-using TournamentDuprRatings.Models.PbTournamentsModels;
 using TournamentDuprRatings.Output;
 using TournamentDuprRatings.Services;
 
@@ -8,8 +9,18 @@ namespace TournamentDuprRatings;
 
 internal static class Program
 {
+    private static string _pickleBallTournamentsBaseUrl = PbbConstants.PickleBallTournamentsBaseUrl;
     private static async Task<int> Main(string[] args)
     {
+
+        var testJsonResult = GetArg(args, "test-json-result");
+        if (!string.IsNullOrWhiteSpace(testJsonResult))
+        {
+            var testJsonFile = File.ReadAllText(testJsonResult);
+            //var results = JsonConvert.DeserializeObject<List<EventInfo>>(testJsonFile);
+            //ExcelService.GenerateEventResultsExcel(results, "test");
+        }
+
         // Guard: GOOGLE_API_KEY must be set before prompting
         var googleApiKey = Environment.GetEnvironmentVariable("GOOGLE_API_KEY");
         if (string.IsNullOrWhiteSpace(googleApiKey))
@@ -27,10 +38,21 @@ internal static class Program
         }
 
         var tournamentName = GetArg(args, "tournament-name");
-        if (string.IsNullOrEmpty(tournamentName)) { 
+        if (string.IsNullOrEmpty(tournamentName))
+        {
             Console.Write("Tournament name (slug): ");
             tournamentName = Console.ReadLine()?.Trim() ?? "";
         }
+
+        var tournmanetCsvFileLocation = GetArg(args, "tournament-csv-file");
+        if (string.IsNullOrEmpty(tournmanetCsvFileLocation))
+        {
+            Console.Write("Tournament CSV file path: ");
+            tournmanetCsvFileLocation = Console.ReadLine()?.Trim() ?? "";
+        }
+
+        var csvService = new CsvService(tournmanetCsvFileLocation);
+        var loadedCsvFile = csvService.LoadPlayersFromCsv();
 
         var httpClient = new HttpClient();
         var geocodingService = new GeocodingService(httpClient, googleApiKey);
@@ -80,18 +102,25 @@ internal static class Program
         var tournamentService = new PickleballTournamentsService(httpClient);
         var fullTournamentDetails = await tournamentService.GetEventInfo(tournamentName);
         var tournaments = new Dictionary<string, List<EventPlayer>>();
-        var tournamentInfo = new Dictionary<string, TournamentEvent>();
         var outPutInfo = new List<EventResults>();
         var cachedDuprId = new Dictionary<string, DuprPlayerHit?>();
         var lowerBoundary = new Dictionary<string, List<DuprPlayerHit>>();
         var upperBoundary = new Dictionary<string, List<DuprPlayerHit>>();
+        var failedPlayerLookup = new List<PlayerInfo>();
+        var consolidatedTeamInfo = new List<TeamInfo>();
+        var eventInfo = new List<EventInfo>();
 
         foreach (var group in fullTournamentDetails.Events)
         {
+            var consolidatedTeam = new TeamInfo();
             foreach (var bracket in group.Events)
             {
-                tournamentInfo[bracket.ActivityId] = bracket;
                 var skillGroup = RatingCalculationHelpers.GetSkillGroup(bracket.SkillGroup);
+                var currentEvent = new EventInfo
+                {
+                    EventTitle = bracket.Title,
+                    SkillGroup = skillGroup
+                };
 
                 // Fetch event players
                 Console.WriteLine("Fetching tournament players...");
@@ -136,7 +165,7 @@ internal static class Program
                     {
                         if (cachedDuprId.ContainsKey(playerProfile.DuprId))
                         {
-                            playerResults[player.FullName] = cachedDuprId[player.Slug];
+                            playerResults[player.FullName] = cachedDuprId[playerProfile.DuprId];
                         }
                         else
                         {
@@ -156,6 +185,7 @@ internal static class Program
 
                     if (hits.Count == 1)
                     {
+                        cachedDuprId.Add(playerProfile.DuprId, hits.FirstOrDefault());
                         Console.WriteLine($"Found: {hits.FirstOrDefault()?.FullName}");
                         var playerDupr = playerResults[player.FullName] = hits.FirstOrDefault();
 
@@ -163,13 +193,23 @@ internal static class Program
                         {
                             var rating = bracket.Format switch
                             {
-                                "Doubles" => double.TryParse(playerDupr?.Ratings?.Doubles, out var doubles) ? doubles : (double?)null,
-                                "Singles" => double.TryParse(playerDupr?.Ratings?.Singles, out var singles) ? singles : (double?)null,
-                                _ => null
+                                "Doubles" => double.TryParse(playerDupr?.Ratings?.Doubles, out var doubles) ? doubles : 0.0,
+                                "Singles" => double.TryParse(playerDupr?.Ratings?.Singles, out var singles) ? singles : 0.0,
+                                _ => 0.0
                             };
 
                             RatingCalculationHelpers.CheckRatingBoundary(bracket.Title, rating, skillGroup, playerDupr, upperBoundary, lowerBoundary);
                         }
+                    }
+
+                    if (hits.Count == 0)
+                    {
+                        failedPlayerLookup.Add(new PlayerInfo
+                        {
+                            FullName = player.FullName,
+                            DuprId = playerProfile.DuprId,
+                            Slug = player.Slug,
+                        });
                     }
                 }
 
@@ -177,30 +217,58 @@ internal static class Program
                 var teams = new List<TeamResult>();
                 foreach (var ep in tournaments[bracket.ActivityId])
                 {
-                    var team = new TeamResult
-                    {
-                        Player1Name = ep.PlayerFullName ?? "",
-                        Player1Doubles = OutputHelpers.ResolveRatingDisplay(ep.PlayerFullName, "Doubles", playerResults, skippedPlayers),
-                        Player1Singles = OutputHelpers.ResolveRatingDisplay(ep.PlayerFullName, "Singles", playerResults, skippedPlayers),
-                        Player1DuprId = OutputHelpers.ResolveHit(ep.PlayerFullName, playerResults)?.DuprId
-                    };
+                    ep.PartnerFullName?.Trim();
+                    //var team = new TeamResult
+                    //{
+                    //    Player1Name = ep.PlayerFullName ?? "",
+                    //    Player1Doubles = OutputHelpers.ResolveRatingDisplay(ep.PlayerFullName, "Doubles", playerResults, skippedPlayers),
+                    //    Player1Singles = OutputHelpers.ResolveRatingDisplay(ep.PlayerFullName, "Singles", playerResults, skippedPlayers),
+                    //    Player1DuprId = OutputHelpers.ResolveHit(ep.PlayerFullName, playerResults)?.DuprId,             
+                    //    Player1PbbLink = $"{_pickleBallTournamentsBaseUrl}{ep.PlayerSlug}"
+                    //};
 
-                    if (string.IsNullOrWhiteSpace(ep.PartnerFullName) || !ep.PartnerDuprActive)
-                    {
-                        team.Player2Name = "N/A";
-                        team.Player2DuprId = "N/A";
-                        team.Player2Doubles = "N/A";
-                        team.Player2Singles = "N/A";
-                    }
-                    else
-                    {
-                        team.Player2Name = ep.PartnerFullName;
-                        team.Player2Doubles = OutputHelpers.ResolveRatingDisplay(ep.PartnerFullName, "Doubles", playerResults, skippedPlayers);
-                        team.Player2Singles = OutputHelpers.ResolveRatingDisplay(ep.PartnerFullName, "Singles", playerResults, skippedPlayers);
-                        team.Player2DuprId = OutputHelpers.ResolveHit(ep.PartnerFullName, playerResults)?.DuprId;
-                    }
+                    //if (string.IsNullOrWhiteSpace(ep.PartnerFullName) || !ep.PartnerDuprActive)
+                    //{
+                    //    team.Player2Name = "N/A";
+                    //    team.Player2DuprId = "N/A";
+                    //    team.Player2Doubles = DoubleConstants.NotFoundRating;
+                    //    team.Player2Singles = DoubleConstants.NotFoundRating;
+                    //}
+                    //else
+                    //{
+                    //    team.Player2Name = ep.PartnerFullName;
+                    //    team.Player2Doubles = OutputHelpers.ResolveRatingDisplay(ep.PartnerFullName, "Doubles", playerResults, skippedPlayers);
+                    //    team.Player2Singles = OutputHelpers.ResolveRatingDisplay(ep.PartnerFullName, "Singles", playerResults, skippedPlayers);
+                    //    team.Player2DuprId = OutputHelpers.ResolveHit(ep.PartnerFullName, playerResults)?.DuprId;
+                    //    team.Player2PbbLink = $"{_pickleBallTournamentsBaseUrl}{ep.PartnerSlug}";
+                    //}
 
-                    teams.Add(team);
+                    //team.SkillGroup = skillGroup;
+                    //teams.Add(team);
+
+                    currentEvent.Teams.Add(new TeamInfo
+                    {
+                        EventTitle = bracket.Title,
+                        EventId = bracket.ActivityId,
+                        PlayerOne = new PlayerInfo
+                        {
+                            FullName = ep.PlayerFullName ?? "",
+                            DuprId = OutputHelpers.ResolveHit(ep.PlayerFullName, playerResults)?.DuprId ?? "",
+                            Slug = ep.PlayerSlug ?? "",
+                            DoublesDuprRating = double.TryParse(OutputHelpers.ResolveHit(ep.PlayerFullName, playerResults)?.Ratings?.Doubles, out var doublesp1) ? doublesp1 : 0.0,
+                            SinglesDuprRating = double.TryParse(OutputHelpers.ResolveHit(ep.PlayerFullName, playerResults)?.Ratings?.Singles, out var singlesp1) ? singlesp1 : 0.0,
+                            Age = OutputHelpers.ResolveHit(ep.PlayerFullName, playerResults)?.Age ?? 0
+                        },
+                        PlayerTwo = new PlayerInfo
+                        {
+                            FullName = ep.PartnerFullName ?? "",
+                            DuprId = OutputHelpers.ResolveHit(ep.PartnerFullName, playerResults)?.DuprId ?? "",
+                            Slug = ep.PartnerSlug ?? "",
+                            DoublesDuprRating = double.TryParse(OutputHelpers.ResolveHit(ep.PartnerFullName, playerResults)?.Ratings?.Doubles, out var doublesp2) ? doublesp2 : 0.0,
+                            SinglesDuprRating = double.TryParse(OutputHelpers.ResolveHit(ep.PartnerFullName, playerResults)?.Ratings?.Singles, out var singlesp2) ? singlesp2 : 0.0,
+                            Age = OutputHelpers.ResolveHit(ep.PartnerFullName, playerResults)?.Age ?? 0
+                        }
+                    });
                 }
 
                 outPutInfo.Add(new EventResults
@@ -209,10 +277,14 @@ internal static class Program
                     Title = bracket.Title,
                     TeamResults = teams
                 });
+
+                eventInfo.Add(currentEvent);
             }
         }
 
         // Output
+        var jsonOutput = JsonConvert.SerializeObject(eventInfo, Formatting.Indented);
+         ExcelService.GenerateEventResultsExcel(eventInfo, "test");
         ConsoleOutput.PrintTable(outPutInfo);
 
         if (lowerBoundary.Count > 0)
