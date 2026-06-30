@@ -20,14 +20,6 @@ internal static class Program
             //ExcelService.GenerateEventResultsExcel(results, "test");
         }
 
-        // Guard: GOOGLE_API_KEY must be set before prompting
-        var googleApiKey = Environment.GetEnvironmentVariable("GOOGLE_API_KEY");
-        if (string.IsNullOrWhiteSpace(googleApiKey))
-        {
-            Console.Error.WriteLine("Error: GOOGLE_API_KEY environment variable is not set.");
-            return 1;
-        }
-
         // Collect inputs — skip prompts for any values supplied as launch arguments
         var bearerToken = GetArg(args, "bearer-token");
         if (string.IsNullOrWhiteSpace(bearerToken))
@@ -54,49 +46,6 @@ internal static class Program
         var loadedCsvFile = csvService.LoadPlayersFromCsv();
 
         var httpClient = new HttpClient();
-        var geocodingService = new GeocodingService(httpClient, googleApiKey);
-
-        double lat = 0, lng = 0;
-        var zipArg = GetArg(args, "zip");
-        //if (!string.IsNullOrWhiteSpace(zipArg))
-        //{
-        //    try
-        //    {
-        //        (lat, lng) = await geocodingService.GeocodeZipAsync(zipArg);
-        //    }
-        //    catch (ZeroResultsException)
-        //    {
-        //        Console.Error.WriteLine($"No geocoding results for zip code '{zipArg}'.");
-        //        return 1;
-        //    }
-        //    catch (Exception ex)
-        //    {
-        //        Console.Error.WriteLine($"Geocoding error: {ex.Message}");
-        //        return 1;
-        //    }
-        //}
-        //else
-        //{
-        //    while (true)
-        //    {
-        //        Console.Write("Tournament zip code: ");
-        //        var zip = Console.ReadLine()?.Trim() ?? "";
-        //        try
-        //        {
-        //            (lat, lng) = await geocodingService.GeocodeZipAsync(zip);
-        //            break;
-        //        }
-        //        catch (ZeroResultsException)
-        //        {
-        //            Console.WriteLine("No geocoding results for that zip code. Please try again.");
-        //        }
-        //        catch (Exception ex)
-        //        {
-        //            Console.Error.WriteLine($"Geocoding error: {ex.Message}");
-        //            return 1;
-        //        }
-        //    }
-        //}
 
         var tournamentService = new PickleballTournamentsService(httpClient);
         var fullTournamentDetails = await tournamentService.GetEventInfo(tournamentName);
