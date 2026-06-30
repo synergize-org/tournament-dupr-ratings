@@ -34,13 +34,13 @@ jobs:
         run: echo "::add-mask::${{ github.event.inputs.bearer_token }}"
 
       - name: Restore dependencies
-        run: dotnet restore
+        run: dotnet restore TournamentDuprRatings.csproj
 
       - name: Build
-        run: dotnet build --configuration Release --no-restore
+        run: dotnet build TournamentDuprRatings.csproj --configuration Release --no-restore
 
       - name: Run report generator
-        run: dotnet run --configuration Release -- --bearer-token "${{ github.event.inputs.bearer_token }}" --tournament-name "${{ github.event.inputs.tournament_name }}"
+        run: dotnet run --project TournamentDuprRatings.csproj --configuration Release -- --bearer-token "${{ github.event.inputs.bearer_token }}" --tournament-name "${{ github.event.inputs.tournament_name }}"
         env:
           REPORT_FILE_NAME: ${{ github.event.inputs.tournament_name }}
           REPORT_OUTPUT_PATH: /tmp/report
