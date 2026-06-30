@@ -1,0 +1,68 @@
+name: Generate and Email Tournament Report
+
+on:
+  workflow_dispatch:
+    inputs:
+      recipient_email:
+        description: 'Recipient email address'
+        required: true
+        default: 'example@example.com'
+      bearer_token:
+        description: 'DUPR Bearer Token'
+        required: true
+        type: string
+      tournament_name:
+        description: 'Tournament Name Pulled From pickleballtournaments.com'
+        required: true
+        type: string
+        default: 'colorado-cup-denver-qualifier-by-dpc'
+
+jobs:
+  generate-and-email:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Run report generator
+        run: dotnet run --configuration Release -- --bearer-token "${{ github.event.inputs.bearer_token }}" --tournament-name "${{ github.event.inputs.tournament_name }}"
+        env:
+          REPORT_FILE_NAME: ${{ github.event.inputs.tournament_name }}
+          REPORT_OUTPUT_PATH: /tmp/report
+
+      - name: Find generated file
+        id: find_file
+        run: |
+          FILE=$(find /tmp/report -name "*.xlsx" | head -1)
+          echo "file_path=$FILE" >> $GITHUB_OUTPUT
+          echo "file_name=$(basename $FILE)" >> $GITHUB_OUTPUT
+
+      - name: Send email with attachment
+        uses: synergize-org/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "Tournament DUPR Report - ${{ steps.find_file.outputs.file_name }}"
+          to: ${{ github.event.inputs.recipient_email }}
+          from: ${{ secrets.MAIL_USERNAME }}
+          body: |
+            Player DUPR Report for Tournament: ${{ github.event.inputs.tournament_name }}
+            
+            Generated: ${{ github.run_id }}
+            File: ${{ steps.find_file.outputs.file_name }}
+          attachments: ${{ steps.find_file.outputs.file_path }}

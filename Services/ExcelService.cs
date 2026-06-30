@@ -27,9 +27,11 @@ namespace TournamentDuprRatings.Services
         public static void GenerateEventResultsExcel(List<EventInfo> eventInfo, string fileName)
         {
             var timestamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
-            var filePath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                $"{fileName}_{timestamp}.xlsx");
+            var outputDir = Environment.GetEnvironmentVariable("REPORT_OUTPUT_PATH")
+                ?? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+
+            var filePath = Path.Combine(outputDir, $"{fileName}_{timestamp}.xlsx");
+            Directory.CreateDirectory(outputDir);
 
             using var workbook = new XLWorkbook();
 

@@ -35,15 +35,15 @@ internal static class Program
             tournamentName = Console.ReadLine()?.Trim() ?? "";
         }
 
-        var tournmanetCsvFileLocation = GetArg(args, "tournament-csv-file");
-        if (string.IsNullOrEmpty(tournmanetCsvFileLocation))
-        {
-            Console.Write("Tournament CSV file path: ");
-            tournmanetCsvFileLocation = Console.ReadLine()?.Trim() ?? "";
-        }
+        //var tournmanetCsvFileLocation = GetArg(args, "tournament-csv-file");
+        //if (string.IsNullOrEmpty(tournmanetCsvFileLocation))
+        //{
+        //    Console.Write("Tournament CSV file path: ");
+        //    tournmanetCsvFileLocation = Console.ReadLine()?.Trim() ?? "";
+        //}
 
-        var csvService = new CsvService(tournmanetCsvFileLocation);
-        var loadedCsvFile = csvService.LoadPlayersFromCsv();
+        //var csvService = new CsvService(tournmanetCsvFileLocation);
+        //var loadedCsvFile = csvService.LoadPlayersFromCsv();
 
         var httpClient = new HttpClient();
 
@@ -57,6 +57,9 @@ internal static class Program
         var failedPlayerLookup = new List<PlayerInfo>();
         var consolidatedTeamInfo = new List<TeamInfo>();
         var eventInfo = new List<EventInfo>();
+        var duprService = new DuprService(httpClient, bearerToken);
+        var htmlScraper = new PickleballPlayerScraper();
+
 
         foreach (var group in fullTournamentDetails.Events)
         {
@@ -98,7 +101,6 @@ internal static class Program
                 Console.WriteLine($"Unique players to look up: {uniquePlayers.Count}");
 
                 // DUPR lookups — sequential so disambiguation prompts never interleave
-                var duprService = new DuprService(httpClient, bearerToken);
                 var playerResults = new Dictionary<string, DuprPlayerInfo?>(StringComparer.OrdinalIgnoreCase);
                 var skippedPlayers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -106,7 +108,6 @@ internal static class Program
                 {
                     Console.WriteLine($"Looking up: https://pickleball.com/players/{player.Slug} ");
 
-                    var htmlScraper = new PickleballPlayerScraper();
                     var playerProfile = await htmlScraper.GetPlayerProfileAsync(player.Slug);                    
 
                     DuprPlayerInfo playerInfo = new DuprPlayerInfo();
