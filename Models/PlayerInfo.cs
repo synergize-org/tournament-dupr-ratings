@@ -6,6 +6,7 @@ namespace TournamentDuprRatings.Models
     {
         public string FullName { get; set; }
         public string DuprId { get; set; }
+        public long Id { get; set; }
         public string Slug { get; set; }
         public double DoublesDuprRating { get; set; }
         public double SinglesDuprRating { get; set; }

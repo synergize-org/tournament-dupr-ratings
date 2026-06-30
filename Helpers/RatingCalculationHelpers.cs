@@ -46,9 +46,9 @@ namespace TournamentDuprRatings.Helpers
             string bracketTitle,
             double? rating,
             (double lower, double upper) skillGroup,
-            DuprPlayerHit playerDupr,
-            Dictionary<string, List<DuprPlayerHit>> upperBoundary,
-            Dictionary<string, List<DuprPlayerHit>> lowerBoundary)
+            DuprPlayerInfo playerDupr,
+            Dictionary<string, List<DuprPlayerInfo>> upperBoundary,
+            Dictionary<string, List<DuprPlayerInfo>> lowerBoundary)
         {
             if (rating > skillGroup.upper)
                 upperBoundary.GetOrAdd(bracketTitle).Add(playerDupr);
@@ -57,12 +57,12 @@ namespace TournamentDuprRatings.Helpers
                 lowerBoundary.GetOrAdd(bracketTitle).Add(playerDupr);
         }
 
-        private static List<DuprPlayerHit> GetOrAdd(
-        this Dictionary<string, List<DuprPlayerHit>> dict,
+        private static List<DuprPlayerInfo> GetOrAdd(
+        this Dictionary<string, List<DuprPlayerInfo>> dict,
         string key)
         {
             if (!dict.ContainsKey(key))
-                dict[key] = new List<DuprPlayerHit>();
+                dict[key] = new List<DuprPlayerInfo>();
 
             return dict[key];
         }

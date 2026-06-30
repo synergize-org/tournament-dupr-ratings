@@ -27,9 +27,9 @@ namespace TournamentDuprRatings.Helpers
             return sb.ToString();
         }
 
-        public static DuprPlayerHit? ResolveHit(
+        public static DuprPlayerInfo? ResolveHit(
             string? name,
-            Dictionary<string, DuprPlayerHit?> results)
+            Dictionary<string, DuprPlayerInfo?> results)
         {
             if (string.IsNullOrWhiteSpace(name)) return null;
             return results.TryGetValue(name, out var hit) ? hit : null;
@@ -38,7 +38,7 @@ namespace TournamentDuprRatings.Helpers
         public static double ResolveRatingDisplay(
             string? name,
             string ratingType,
-            Dictionary<string, DuprPlayerHit?> results,
+            Dictionary<string, DuprPlayerInfo   ?> results,
             HashSet<string> skipped)
         {
             if (string.IsNullOrWhiteSpace(name)) return DoubleConstants.NotFoundRating;
@@ -46,8 +46,8 @@ namespace TournamentDuprRatings.Helpers
             if (!results.TryGetValue(name, out var hit) || hit == null) return DoubleConstants.NotFoundRating   ;
 
             return ratingType == "Doubles"
-                ? double.TryParse(hit.Ratings?.Doubles, out var doubles) ? doubles : 0.0
-                : double.TryParse(hit.Ratings?.Singles, out var singles) ? singles : 0.0;
+                ? double.TryParse(hit.Result.Ratings.Doubles, out var doubles) ? doubles : DoubleConstants.NoRating
+                : double.TryParse(hit.Result.Ratings.Singles, out var singles) ? singles : DoubleConstants.NoRating;
         }
     }
 }

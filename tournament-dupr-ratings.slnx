@@ -1,4 +1,3 @@
 <Solution>
-  <Project Path="tournament-dupr-ratings.Tests/tournament-dupr-ratings.Tests.csproj" />
   <Project Path="TournamentDuprRatings.csproj" />
 </Solution>
