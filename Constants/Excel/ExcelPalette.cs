@@ -18,5 +18,9 @@ namespace TournamentDuprRatings.Constants.Excel
         public static readonly XLColor AccentBlue = XLColor.FromArgb(68, 114, 196);
         public static readonly XLColor EvenRowBackground = XLColor.FromArgb(235, 241, 250);
         public static readonly XLColor TableHeaderBackground = XLColor.FromArgb(189, 215, 238);
+
+        /// <summary>Muted text color for low-priority/internal data (e.g. the internal id column)
+        /// that should stay visible - per Excel's data guidelines - without drawing attention.</summary>
+        public static readonly XLColor MutedText = XLColor.FromArgb(150, 150, 150);
     }
 }

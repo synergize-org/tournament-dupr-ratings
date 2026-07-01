@@ -1,4 +1,5 @@
 ﻿using ClosedXML.Excel;
+using System.Globalization;
 using TournamentDuprRatings.Constants;
 using TournamentDuprRatings.Constants.Excel;
 using TournamentDuprRatings.Models;
@@ -18,9 +19,16 @@ namespace TournamentDuprRatings.Services
         private const int SummaryColumnCount = 2;
         private const int RowsBetweenDivisions = 2;
         private const int PlaceColumnWidth = 8;
+
+        // Per Excel's worksheet formatting guidance, data columns are auto-sized to their content,
+        // then clamped to this range so one unusually short/long value can't shrink or blow out a column.
+        private const double MinDataColumnWidth = 10;
+        private const double MaxDataColumnWidth = 30;
+
         private const int MaxExcelSheetNameLength = 31;
         private const string RatingNumberFormat = "0.000";
         private const string NoDuprIdLabel = "-";
+        private const string InternalIdHeader = "Internal ID";
         private const string DuprDashboardPlayerUrlPrefix = "https://dashboard.dupr.com/dashboard/player/";
 
         public static void GenerateEventResultsExcel(List<EventInfo> eventInfo, string fileName)
@@ -61,6 +69,7 @@ namespace TournamentDuprRatings.Services
             sheet.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
 
             bool isSingles = sheetGroup.FirstOrDefault()?.Format?.Equals(SinglesFormatName, StringComparison.OrdinalIgnoreCase) ?? false;
+            int totalColumnCount = isSingles ? ExcelColumns.Singles.TotalColumnCount : ExcelColumns.Doubles.TotalColumnCount;
 
             int currentRow = 1;
             foreach (var divisionEvent in sheetGroup)
@@ -68,19 +77,36 @@ namespace TournamentDuprRatings.Services
                 currentRow = WriteEventSection(sheet, divisionEvent, currentRow, isSingles) + RowsBetweenDivisions;
             }
 
-            sheet.Columns().AdjustToContents();
+            AutoFitColumns(sheet, totalColumnCount);
+        }
+
+        /// <summary>
+        /// Auto-sizes every column to its content (each field occupies exactly one column, so this
+        /// measures real values instead of guessing at a merged range), then clamps data columns to a
+        /// readable width range so no name is clipped and no single column dominates the sheet.
+        /// </summary>
+        private static void AutoFitColumns(IXLWorksheet sheet, int totalColumnCount)
+        {
+            sheet.Columns(1, totalColumnCount).AdjustToContents();
+
+            for (int col = ExcelColumns.Place + 1; col <= totalColumnCount; col++)
+            {
+                var column = sheet.Column(col);
+                column.Width = Math.Clamp(column.Width, MinDataColumnWidth, MaxDataColumnWidth);
+            }
+
             sheet.Column(ExcelColumns.Place).Width = PlaceColumnWidth;
-            sheet.Column(ExcelColumns.Place + 1).Width = PlaceColumnWidth;
         }
 
         /// <summary>Writes one division's title, column headers, and team rows. Returns the last row written.</summary>
         private static int WriteEventSection(IXLWorksheet sheet, EventInfo eventInfo, int startRow, bool isSingles)
         {
-            int visibleColumnCount = isSingles ? ExcelColumns.Singles.VisibleColumnCount : ExcelColumns.Doubles.VisibleColumnCount;
+            int totalColumnCount = isSingles ? ExcelColumns.Singles.TotalColumnCount : ExcelColumns.Doubles.TotalColumnCount;
 
-            int row = WriteSectionTitle(sheet, eventInfo.EventTitle, startRow, visibleColumnCount);
+            int row = WriteSectionTitle(sheet, eventInfo.EventTitle, startRow, totalColumnCount);
             row = WriteColumnHeaders(sheet, row, isSingles);
 
+            int firstDataRow = row;
             int place = 1;
             foreach (var team in eventInfo.Teams)
             {
@@ -91,15 +117,20 @@ namespace TournamentDuprRatings.Services
                     WriteDoublesRow(sheet, row, team, isEvenRow, eventInfo.SkillGroup.lower, eventInfo.SkillGroup.upper);
 
                 sheet.Cell(row, ExcelColumns.Place).Value = place++;
-                MergeColumnSpan(sheet, row, ExcelColumns.Place);
 
                 row++;
             }
 
-            return row - 1;
+            int lastDataRow = row - 1;
+            if (isSingles)
+                ApplySinglesRatingConditionalFormat(sheet, firstDataRow, lastDataRow, eventInfo.SkillGroup.lower, eventInfo.SkillGroup.upper);
+            else
+                ApplyDoublesRatingConditionalFormat(sheet, firstDataRow, lastDataRow, eventInfo.SkillGroup.lower, eventInfo.SkillGroup.upper);
+
+            return lastDataRow;
         }
 
-        private static int WriteSectionTitle(IXLWorksheet sheet, string? title, int row, int visibleColumnCount)
+        private static int WriteSectionTitle(IXLWorksheet sheet, string? title, int row, int totalColumnCount)
         {
             var titleCell = sheet.Cell(row, 1);
             titleCell.Value = title;
@@ -108,7 +139,7 @@ namespace TournamentDuprRatings.Services
             titleCell.Style.Font.FontColor = ExcelPalette.HeaderText;
             titleCell.Style.Fill.BackgroundColor = ExcelPalette.TitleBackground;
             titleCell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            sheet.Range(row, 1, row, visibleColumnCount).Merge();
+            sheet.Range(row, 1, row, totalColumnCount).Merge();
 
             return row + 1;
         }
@@ -116,20 +147,18 @@ namespace TournamentDuprRatings.Services
         private static int WriteColumnHeaders(IXLWorksheet sheet, int row, bool isSingles)
         {
             string[] headers = isSingles
-                ? ["Place", "Player Name", "DUPR ID", "Singles DUPR", "On Waitlist"]
-                : ["Place", "Player 1 Name", "Player 1 DUPR ID", "Player 1 Doubles", "Player 2 Name", "Player 2 DUPR ID", "Player 2 Doubles", "Average Team DUPR", "On Waitlist"];
+                ? ["Place", "Player Name", "DUPR ID", "Singles DUPR", "On Waitlist", InternalIdHeader]
+                : ["Place", "Player 1 Name", "Player 1 DUPR ID", "Player 1 Doubles", "Player 2 Name", "Player 2 DUPR ID", "Player 2 Doubles", "Average Team DUPR", "On Waitlist", InternalIdHeader];
 
-            for (int i = 0; i < headers.Length; i++)
+            for (int col = 1; col <= headers.Length; col++)
             {
-                int col = (i * ExcelColumns.ColumnSpan) + 1;
                 var cell = sheet.Cell(row, col);
-                cell.Value = headers[i];
+                cell.Value = headers[col - 1];
                 cell.Style.Font.Bold = true;
                 cell.Style.Font.FontColor = ExcelPalette.HeaderText;
                 cell.Style.Fill.BackgroundColor = ExcelPalette.AccentBlue;
                 cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
                 cell.Style.Border.BottomBorder = XLBorderStyleValues.Medium;
-                MergeColumnSpan(sheet, row, col);
             }
 
             return row + 1;
@@ -137,7 +166,7 @@ namespace TournamentDuprRatings.Services
 
         private static void WriteSinglesRow(IXLWorksheet sheet, int row, TeamInfo team, bool isEvenRow, double lowerSkillRating, double upperSkillRating)
         {
-            ApplyRowShading(sheet, row, ExcelColumns.Singles.VisibleColumnCount, isEvenRow);
+            ApplyRowShading(sheet, row, ExcelColumns.Singles.TotalColumnCount, isEvenRow);
 
             WritePlayerNameCell(sheet, row, ExcelColumns.Singles.PlayerName, team.PlayerOne);
             WriteDuprIdCell(sheet, row, ExcelColumns.Singles.PlayerDuprId, team.PlayerOne);
@@ -147,17 +176,16 @@ namespace TournamentDuprRatings.Services
             ratingCell.Value = rating;
             ratingCell.Style.NumberFormat.Format = RatingNumberFormat;
             ratingCell.Style.Fill.BackgroundColor = GetSinglesDuprCellColor(rating, lowerSkillRating, upperSkillRating);
-            MergeColumnSpan(sheet, row, ExcelColumns.Singles.PlayerRating);
 
             WriteWaitlistCell(sheet, row, ExcelColumns.Singles.OnWaitlist, team.IsOnWaitList);
-            WriteHiddenUniqueIdCell(sheet, row, ExcelColumns.Singles.UniqueId, team.UniqueId);
+            WriteInternalIdCell(sheet, row, ExcelColumns.Singles.InternalId, team.UniqueId);
         }
 
         private static void WriteDoublesRow(IXLWorksheet sheet, int row, TeamInfo team, bool isEvenRow, double lowerSkillRating, double upperSkillRating)
         {
             bool missingPartner = string.IsNullOrEmpty(team.PlayerTwo?.FullName?.Trim());
 
-            ApplyRowShading(sheet, row, ExcelColumns.Doubles.VisibleColumnCount, isEvenRow);
+            ApplyRowShading(sheet, row, ExcelColumns.Doubles.TotalColumnCount, isEvenRow);
 
             WritePlayerNameCell(sheet, row, ExcelColumns.Doubles.Player1Name, team.PlayerOne);
             WriteDuprIdCell(sheet, row, ExcelColumns.Doubles.Player1DuprId, team.PlayerOne);
@@ -168,18 +196,17 @@ namespace TournamentDuprRatings.Services
             WriteDoublesRatingCell(sheet, row, ExcelColumns.Doubles.Player2Rating, team, isPlayer1: false, missingPartner, lowerSkillRating, upperSkillRating);
 
             var avgCell = sheet.Cell(row, ExcelColumns.Doubles.AverageTeamDupr);
-            avgCell.Value = team.AverageTeamDupr;
+            avgCell.FormulaA1 = $"=({CellRef(sheet, row, ExcelColumns.Doubles.Player1Rating)}+{CellRef(sheet, row, ExcelColumns.Doubles.Player2Rating)})/2";
             avgCell.Style.NumberFormat.Format = RatingNumberFormat;
-            MergeColumnSpan(sheet, row, ExcelColumns.Doubles.AverageTeamDupr);
 
             WriteWaitlistCell(sheet, row, ExcelColumns.Doubles.OnWaitlist, team.IsOnWaitList);
-            WriteHiddenUniqueIdCell(sheet, row, ExcelColumns.Doubles.UniqueId, team.UniqueId);
+            WriteInternalIdCell(sheet, row, ExcelColumns.Doubles.InternalId, team.UniqueId);
         }
 
         /// <summary>Shades the full row for readability, alternating between white and light blue.</summary>
-        private static void ApplyRowShading(IXLWorksheet sheet, int row, int visibleColumnCount, bool isEvenRow)
+        private static void ApplyRowShading(IXLWorksheet sheet, int row, int totalColumnCount, bool isEvenRow)
         {
-            sheet.Range(row, 1, row, visibleColumnCount).Style.Fill.BackgroundColor = isEvenRow
+            sheet.Range(row, 1, row, totalColumnCount).Style.Fill.BackgroundColor = isEvenRow
                 ? ExcelPalette.EvenRowBackground
                 : XLColor.NoColor;
         }
@@ -188,10 +215,9 @@ namespace TournamentDuprRatings.Services
         private static void WritePlayerNameCell(IXLWorksheet sheet, int row, int col, PlayerInfo? player)
         {
             var cell = sheet.Cell(row, col);
-            cell.Value = SanitizeCellText(player?.FullName ?? "");
+            cell.Value = SanitizeCellText(player?.FullName?.Trim() ?? "");
             if (!string.IsNullOrEmpty(player?.PbbLink))
                 cell.SetHyperlink(new XLHyperlink(player.PbbLink));
-            MergeColumnSpan(sheet, row, col);
         }
 
         /// <summary>Writes a player's DUPR id, linking to their DUPR dashboard profile when available.</summary>
@@ -201,7 +227,6 @@ namespace TournamentDuprRatings.Services
             cell.Value = player?.DuprId ?? NoDuprIdLabel;
             if (!string.IsNullOrEmpty(player?.DuprId))
                 cell.SetHyperlink(new XLHyperlink($"{DuprDashboardPlayerUrlPrefix}{player?.Id}"));
-            MergeColumnSpan(sheet, row, col);
         }
 
         /// <summary>
@@ -222,27 +247,24 @@ namespace TournamentDuprRatings.Services
             cell.Value = rating;
             cell.Style.NumberFormat.Format = RatingNumberFormat;
             cell.Style.Fill.BackgroundColor = color;
-            MergeColumnSpan(sheet, row, col);
         }
 
         private static void WriteWaitlistCell(IXLWorksheet sheet, int row, int col, bool isOnWaitlist)
         {
             sheet.Cell(row, col).Value = isOnWaitlist ? "Yes" : "No";
-            MergeColumnSpan(sheet, row, col);
         }
 
-        /// <summary>Writes the team's unique id into a hidden column, used for future lookups/debugging.</summary>
-        private static void WriteHiddenUniqueIdCell(IXLWorksheet sheet, int row, int col, string uniqueId)
+        /// <summary>
+        /// Writes the team's internal lookup id. Kept visible (not hidden) per Excel's worksheet
+        /// guidance - hiding columns within a data range risks accidental deletion and can prevent
+        /// Excel from correctly detecting the range - but muted so it doesn't compete with the data.
+        /// </summary>
+        private static void WriteInternalIdCell(IXLWorksheet sheet, int row, int col, string internalId)
         {
             var idCell = sheet.Cell(row, col);
-            idCell.Value = uniqueId;
-            idCell.Style.Fill.BackgroundColor = XLColor.NoColor;
-            sheet.Column(col).Hide();
+            idCell.Value = internalId;
+            idCell.Style.Font.FontColor = ExcelPalette.MutedText;
         }
-
-        /// <summary>Merges a field's 2-column span (starting at <paramref name="col"/>) into one visual cell.</summary>
-        private static void MergeColumnSpan(IXLWorksheet sheet, int row, int col) =>
-            sheet.Range(row, col, row, col + ExcelColumns.ColumnSpan - 1).Merge();
 
         /// <summary>
         /// Defensive override: if the computed color is "passed" for a player whose DUPR lookup
@@ -266,11 +288,13 @@ namespace TournamentDuprRatings.Services
             var summary = workbook.Worksheets.Add(SummarySheetName);
             workbook.Worksheets.Worksheet(SummarySheetName).Position = SummarySheetPosition;
 
-            int currentRow = WriteSummaryTitle(summary, 1);
-            currentRow = WriteColorKeySection(summary, currentRow);
-            currentRow++; // Spacer between the color key and the division list
+            int sectionsRow = WriteSummaryTitle(summary, 1);
 
-            WriteDivisionGroups(workbook, summary, eventInfo, currentRow);
+            // Color Key (columns 1-2) and the requirements explanation (column 4, past an empty spacer
+            // column 3) sit side by side starting on the same row, so the sheet grows wider, not taller.
+            int colorKeyEndRow = WriteColorKeySection(summary, sectionsRow);
+
+            WriteDivisionGroups(workbook, summary, eventInfo, colorKeyEndRow);
 
             summary.Columns().AdjustToContents();
         }
@@ -418,6 +442,124 @@ namespace TournamentDuprRatings.Services
                 return value;
 
             return _formulaTriggerChars.Contains(value[0]) ? "'" + value : value;
+        }
+
+        // ---------------------------------------------------------------------------------------
+        // Excel conditional formatting: mirrors GetSinglesDuprCellColor/GetDoublesDuprCellColor as
+        // native Excel formulas, so the same colors are recomputed live if a user manually edits a
+        // rating, waitlist, or player name cell after the workbook has been generated.
+        // ---------------------------------------------------------------------------------------
+
+        /// <summary>The A1-style address (e.g. "D5", no $ locks) of a cell, for building formula strings.</summary>
+        private static string CellRef(IXLWorksheet sheet, int row, int col) =>
+            sheet.Cell(row, col).Address.ToStringRelative();
+
+        /// <summary>Formats a number using "." as the decimal separator, regardless of system locale.</summary>
+        private static string Num(double value) => value.ToString(CultureInfo.InvariantCulture);
+
+        /// <summary>Adds one fill rule to a range: when <paramref name="formula"/> is true, apply <paramref name="color"/>
+        /// and stop evaluating lower-priority rules (mirroring an if/else-if chain).</summary>
+        private static void AddConditionalColorRule(IXLRange range, string formula, XLColor color)
+        {
+            var conditionalFormat = range.AddConditionalFormat();
+            conditionalFormat.WhenIsTrue(formula).Fill.SetBackgroundColor(color);
+            conditionalFormat.SetStopIfTrue();
+        }
+
+        /// <summary>Mirrors <see cref="GetSinglesDuprCellColor"/> as conditional formatting over one division's rating column.</summary>
+        private static void ApplySinglesRatingConditionalFormat(IXLWorksheet sheet, int firstDataRow, int lastDataRow, double lowerSkillRating, double upperSkillRating)
+        {
+            if (firstDataRow > lastDataRow)
+                return;
+
+            int col = ExcelColumns.Singles.PlayerRating;
+            var range = sheet.Range(firstDataRow, col, lastDataRow, col);
+            string rating = CellRef(sheet, firstDataRow, col);
+
+            bool isOpenDivision = upperSkillRating >= ExcelRatingThresholds.OpenDivisionRatingThreshold;
+            double hardFloor = lowerSkillRating - ExcelRatingThresholds.HardFloorMargin;
+
+            if (isOpenDivision)
+                AddConditionalColorRule(range, $"{rating}={Num(DoubleConstants.NoRating)}", ExcelPalette.NoRatingCheck);
+
+            AddConditionalColorRule(range, $"OR({rating}>{Num(upperSkillRating)},{rating}<{Num(hardFloor)})", ExcelPalette.FailedCheck);
+            AddConditionalColorRule(range, "TRUE()", ExcelPalette.PassedCheck);
+        }
+
+        /// <summary>Mirrors <see cref="GetDoublesDuprCellColor"/> (plus the no-partner and rating-not-found
+        /// handling from <see cref="WriteDoublesRatingCell"/>) as conditional formatting over both rating columns.</summary>
+        private static void ApplyDoublesRatingConditionalFormat(IXLWorksheet sheet, int firstDataRow, int lastDataRow, double lowerSkillRating, double upperSkillRating)
+        {
+            if (firstDataRow > lastDataRow)
+                return;
+
+            string player1Rating = CellRef(sheet, firstDataRow, ExcelColumns.Doubles.Player1Rating);
+            string player2Rating = CellRef(sheet, firstDataRow, ExcelColumns.Doubles.Player2Rating);
+            string player2Name = CellRef(sheet, firstDataRow, ExcelColumns.Doubles.Player2Name);
+            string averageTeamDupr = CellRef(sheet, firstDataRow, ExcelColumns.Doubles.AverageTeamDupr);
+
+            var player1Range = sheet.Range(firstDataRow, ExcelColumns.Doubles.Player1Rating, lastDataRow, ExcelColumns.Doubles.Player1Rating);
+            var player2Range = sheet.Range(firstDataRow, ExcelColumns.Doubles.Player2Rating, lastDataRow, ExcelColumns.Doubles.Player2Rating);
+
+            ApplyDoublesRatingRules(player1Range, selfRef: player1Rating, partnerRef: player2Rating, player2NameRef: player2Name, averageRef: averageTeamDupr, lowerSkillRating, upperSkillRating);
+            ApplyDoublesRatingRules(player2Range, selfRef: player2Rating, partnerRef: player1Rating, player2NameRef: player2Name, averageRef: averageTeamDupr, lowerSkillRating, upperSkillRating);
+        }
+
+        /// <summary>
+        /// Writes the ordered fill rules for one rating column, in the same priority as the
+        /// GetDoublesDuprCellColor/GetUnratedTeamMemberColor if/else-if chain (each rule stops evaluation
+        /// once true, so priority order matters as much as the conditions themselves).
+        /// </summary>
+        private static void ApplyDoublesRatingRules(IXLRange range, string selfRef, string partnerRef, string player2NameRef, string averageRef, double lowerSkillRating, double upperSkillRating)
+        {
+            bool isOpenDivision = upperSkillRating >= ExcelRatingThresholds.OpenDivisionRatingThreshold;
+            bool isAboveOpenThreshold = upperSkillRating > ExcelRatingThresholds.OpenDivisionRatingThreshold;
+            double hardFloor = lowerSkillRating - ExcelRatingThresholds.HardFloorMargin;
+            double softFloor = lowerSkillRating - ExcelRatingThresholds.SoftFloorMargin;
+
+            string noRating = Num(DoubleConstants.NoRating);
+            string notFoundRating = Num(DoubleConstants.NotFoundRating);
+            string lower = Num(lowerSkillRating);
+            string upper = Num(upperSkillRating);
+
+            string eitherUnratedCondition = $"OR({selfRef}={noRating},{partnerRef}={noRating})";
+            string ratedPlayerRatingExpr = $"IF({selfRef}={noRating},{partnerRef},{selfRef})";
+            string ratedPlayerInRangeCondition = $"AND({ratedPlayerRatingExpr}>={lower},{ratedPlayerRatingExpr}<={upper})";
+            string partnerInRangeCondition = $"AND({partnerRef}>={lower},{partnerRef}<={upper})";
+            string teamAverageAcceptableCondition = $"{averageRef}>={Num(softFloor)}";
+
+            // 1. Incomplete team (no second player registered) always shows as "no partner".
+            AddConditionalColorRule(range, $"TRIM({player2NameRef})=\"\"", ExcelPalette.NoPartnerCheck);
+
+            // 2. A rating that failed to look up entirely is always flagged (a simplification of the
+            //    original code's narrower "would otherwise have passed" override - see ApplyRatingNotFoundOverride).
+            AddConditionalColorRule(range, $"{selfRef}={notFoundRating}", ExcelPalette.NoRatingCheck);
+
+            // 3. Neither player has a rating yet: fails in Open divisions, otherwise passes.
+            AddConditionalColorRule(range, $"AND({selfRef}={noRating},{partnerRef}={noRating})", isOpenDivision ? ExcelPalette.FailedCheck : ExcelPalette.PassedCheck);
+
+            // 4. Exactly one player is unrated: judged by whichever player IS rated (Open divisions always fail).
+            if (isAboveOpenThreshold)
+            {
+                AddConditionalColorRule(range, eitherUnratedCondition, ExcelPalette.FailedCheck);
+            }
+            else
+            {
+                AddConditionalColorRule(range, $"AND({eitherUnratedCondition},{ratedPlayerInRangeCondition})", ExcelPalette.PassedCheck);
+                AddConditionalColorRule(range, eitherUnratedCondition, ExcelPalette.FailedCheck);
+            }
+
+            // 5. Both players rated: hard-fail outside the division's floor/ceiling.
+            AddConditionalColorRule(range, $"OR({selfRef}>{upper},{selfRef}<{Num(hardFloor)})", ExcelPalette.FailedCheck);
+
+            // 6. Player meets the lower bound outright.
+            AddConditionalColorRule(range, $"{selfRef}>={lower}", ExcelPalette.PassedCheck);
+
+            // 7. Player is slightly under, but the partner (or team average) makes up for it.
+            AddConditionalColorRule(range, $"OR({partnerInRangeCondition},{teamAverageAcceptableCondition})", ExcelPalette.PassedCheck);
+
+            // 8. Otherwise, fails.
+            AddConditionalColorRule(range, "TRUE()", ExcelPalette.FailedCheck);
         }
 
         private static XLColor GetSinglesDuprCellColor(double playerRating, double lowerSkillRating, double upperSkillRating)
