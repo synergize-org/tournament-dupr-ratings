@@ -35,16 +35,6 @@ internal static class Program
             tournamentName = Console.ReadLine()?.Trim() ?? "";
         }
 
-        //var tournmanetCsvFileLocation = GetArg(args, "tournament-csv-file");
-        //if (string.IsNullOrEmpty(tournmanetCsvFileLocation))
-        //{
-        //    Console.Write("Tournament CSV file path: ");
-        //    tournmanetCsvFileLocation = Console.ReadLine()?.Trim() ?? "";
-        //}
-
-        //var csvService = new CsvService(tournmanetCsvFileLocation);
-        //var loadedCsvFile = csvService.LoadPlayersFromCsv();
-
         var httpClient = new HttpClient();
 
         var tournamentService = new PickleballTournamentsService(httpClient);
@@ -61,11 +51,29 @@ internal static class Program
         var htmlScraper = new PickleballPlayerScraper();
 
 
+        if (fullTournamentDetails.Events == null || fullTournamentDetails.Events.Count == 0)
+        {
+            Console.Error.WriteLine($"No events found for tournament: {tournamentName}");
+            return 1;
+        }
+    
         foreach (var group in fullTournamentDetails.Events)
         {
+            if (group.Events == null || group.Events.Count == 0)
+            {
+                Console.Error.WriteLine($"No brackets found for event: {group.GroupTitle}");
+                continue;
+            }
+            
             var consolidatedTeam = new TeamInfo();
             foreach (var bracket in group.Events)
             {
+                if (bracket.ActivityId == null)
+                {
+                    Console.Error.WriteLine($"Skipping bracket {bracket.Title} due to missing ActivityId.");
+                    continue;
+                }
+            
                 var skillGroup = RatingCalculationHelpers.GetSkillGroup(bracket.SkillGroup);
                 var currentEvent = new EventInfo
                 {
@@ -106,6 +114,12 @@ internal static class Program
 
                 foreach (var player in uniquePlayers)
                 {
+                    if (player.Slug == null)
+                    {
+                        Console.WriteLine($"Skipping player {player.FullName} due to missing slug.");
+                        continue;
+                    }
+                
                     Console.WriteLine($"Looking up: https://pickleball.com/players/{player.Slug} ");
 
                     var playerProfile = await htmlScraper.GetPlayerProfileAsync(player.Slug);                    
@@ -168,7 +182,7 @@ internal static class Program
                 var teams = new List<TeamResult>();
                 foreach (var ep in tournaments[bracket.ActivityId])
                 {
-                    ep.PartnerFullName?.Trim();                   
+                    ep.PartnerFullName?.Trim();
                     currentEvent.Teams.Add(new TeamInfo
                     {
                         EventTitle = bracket.Title,
@@ -180,19 +194,19 @@ internal static class Program
                             DuprId = OutputHelpers.ResolveHit(ep.PlayerFullName, playerResults)?.Result?.DuprId ?? "",
                             Id = OutputHelpers.ResolveHit(ep.PlayerFullName, playerResults)?.Result?.Id ?? 0,
                             Slug = ep.PlayerSlug ?? "",
-                            DoublesDuprRating = GetPlayerRating(OutputHelpers.ResolveHit(ep.PlayerFullName, playerResults), true),
-                            SinglesDuprRating = GetPlayerRating(OutputHelpers.ResolveHit(ep.PlayerFullName, playerResults), false),
-                            Age = OutputHelpers.ResolveHit(ep.PlayerFullName, playerResults)?.Result?.Age ?? 0
+                            DoublesDuprRating = GetPlayerRating(OutputHelpers.ResolveHit(ep?.PlayerFullName, playerResults), true),
+                            SinglesDuprRating = GetPlayerRating(OutputHelpers.ResolveHit(ep?.PlayerFullName, playerResults), false),
+                            Age = OutputHelpers.ResolveHit(ep?.PlayerFullName, playerResults)?.Result?.Age ?? 0
                         },
                         PlayerTwo = new PlayerInfo
                         {
-                            FullName = ep.PartnerFullName ?? "",
-                            DuprId = OutputHelpers.ResolveHit(ep.PartnerFullName, playerResults)?.Result?.DuprId ?? "",
-                            Id = OutputHelpers.ResolveHit(ep.PartnerFullName, playerResults)?.Result?.Id ?? 0,
-                            Slug = ep.PartnerSlug ?? "",
-                            DoublesDuprRating = GetPlayerRating(OutputHelpers.ResolveHit(ep.PartnerFullName, playerResults), true),
-                            SinglesDuprRating = GetPlayerRating(OutputHelpers.ResolveHit(ep.PartnerFullName, playerResults), false),
-                            Age = OutputHelpers.ResolveHit(ep.PartnerFullName, playerResults)?.Result?.Age ?? 0
+                            FullName = ep?.PartnerFullName ?? "",
+                            DuprId = OutputHelpers.ResolveHit(ep?.PartnerFullName, playerResults)?.Result?.DuprId ?? "",
+                            Id = OutputHelpers.ResolveHit(ep?.PartnerFullName, playerResults)?.Result?.Id ?? 0,
+                            Slug = ep?.PartnerSlug ?? "",
+                            DoublesDuprRating = GetPlayerRating(OutputHelpers.ResolveHit(ep?.PartnerFullName, playerResults), true),
+                            SinglesDuprRating = GetPlayerRating(OutputHelpers.ResolveHit(ep?.PartnerFullName, playerResults), false),
+                            Age = OutputHelpers.ResolveHit(ep?.PartnerFullName, playerResults)?.Result?.Age ?? 0
                         }
                     });
                 }
@@ -210,7 +224,8 @@ internal static class Program
 
         // Output
         var jsonOutput = JsonConvert.SerializeObject(eventInfo, Formatting.Indented);
-         ExcelService.GenerateEventResultsExcel(eventInfo, "test");
+        Console.WriteLine(jsonOutput);
+        ExcelService.GenerateEventResultsExcel(eventInfo, tournamentName);
 
         return 0;
     }

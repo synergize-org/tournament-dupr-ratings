@@ -45,7 +45,7 @@ namespace TournamentDuprRatings.Services
                 var sheet = workbook.Worksheets.Add(sheetName);
                 sheet.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
                 sheet.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
-                bool isSingles = sheetGroup.First().Format.Equals("Singles", StringComparison.OrdinalIgnoreCase);
+                bool isSingles = sheetGroup.FirstOrDefault()?.Format?.Equals("Singles", StringComparison.OrdinalIgnoreCase) ?? false;
 
                 int currentRow = 1;
                 foreach (var tournamentInfo in sheetGroup)
@@ -125,21 +125,21 @@ namespace TournamentDuprRatings.Services
                 : XLColor.NoColor;
 
             // P1 Name (cols 3-4)
-            sheet.Cell(row, 3).Value = team.PlayerOne.FullName;
-            if (!string.IsNullOrEmpty(team.PlayerOne.PbbLink))
+            sheet.Cell(row, 3).Value = team.PlayerOne?.FullName ?? "";
+            if (!string.IsNullOrEmpty(team.PlayerOne?.PbbLink))
                 sheet.Cell(row, 3).SetHyperlink(new XLHyperlink(team.PlayerOne.PbbLink));
             sheet.Range(row, 3, row, 4).Merge();
 
             // P1 DUPR ID (cols 5-6)
-            sheet.Cell(row, 5).Value = team.PlayerOne.DuprId ?? "-";
-            if (!string.IsNullOrEmpty(team.PlayerOne.DuprId))
-                sheet.Cell(row, 5).SetHyperlink(new XLHyperlink($"https://dashboard.dupr.com/dashboard/player/{team.PlayerOne.Id}"));
+            sheet.Cell(row, 5).Value = team.PlayerOne?.DuprId ?? "-";
+            if (!string.IsNullOrEmpty(team.PlayerOne?.DuprId))
+                sheet.Cell(row, 5).SetHyperlink(new XLHyperlink($"https://dashboard.dupr.com/dashboard/player/{team.PlayerOne?.Id}"));
             sheet.Range(row, 5, row, 6).Merge();
 
             // P1 Singles DUPR (cols 7-8)
-            sheet.Cell(row, 7).Value = team.PlayerOne.SinglesDuprRating;
+            sheet.Cell(row, 7).Value = team.PlayerOne?.SinglesDuprRating ?? DoubleConstants.NoRating;
             sheet.Cell(row, 7).Style.NumberFormat.Format = "0.000";
-            sheet.Cell(row, 7).Style.Fill.BackgroundColor = GetSinglesDuprCellColor(team.PlayerOne.SinglesDuprRating, lowerSkillRating, upperSkillRating);
+            sheet.Cell(row, 7).Style.Fill.BackgroundColor = GetSinglesDuprCellColor(team.PlayerOne?.SinglesDuprRating ?? DoubleConstants.NoRating, lowerSkillRating, upperSkillRating);
             sheet.Range(row, 7, row, 8).Merge();
 
             // On Waitlist (cols 9-10)
@@ -155,7 +155,7 @@ namespace TournamentDuprRatings.Services
 
         private static void WriteDoublesRow(IXLWorksheet sheet, int row, TeamInfo team, bool isEvenRow, double lowerSkillRating, double upperSkillRating)
         {
-            bool missingPartner = string.IsNullOrEmpty(team.PlayerTwo.FullName.Trim());
+            bool missingPartner = string.IsNullOrEmpty(team.PlayerTwo?.FullName?.Trim());
 
             var rowRange = sheet.Range(row, 1, row, DoublesColCount);
             rowRange.Style.Fill.BackgroundColor = isEvenRow
@@ -163,51 +163,51 @@ namespace TournamentDuprRatings.Services
                 : XLColor.NoColor;
 
             // P1 Name (cols 3-4)
-            sheet.Cell(row, 3).Value = team.PlayerOne.FullName;
-            if (!string.IsNullOrEmpty(team.PlayerOne.PbbLink))
-                sheet.Cell(row, 3).SetHyperlink(new XLHyperlink(team.PlayerOne.PbbLink));
+            sheet.Cell(row, 3).Value = team.PlayerOne?.FullName ?? "";
+            if (!string.IsNullOrEmpty(team.PlayerOne?.PbbLink))
+                sheet.Cell(row, 3).SetHyperlink(new XLHyperlink(team.PlayerOne?.PbbLink));
             sheet.Range(row, 3, row, 4).Merge();
 
             // P1 DUPR ID (cols 5-6)
-            sheet.Cell(row, 5).Value = team.PlayerOne.DuprId ?? "-";
-            if (!string.IsNullOrEmpty(team.PlayerOne.DuprId))
-                sheet.Cell(row, 5).SetHyperlink(new XLHyperlink($"https://dashboard.dupr.com/dashboard/player/{team.PlayerOne.Id}"));
+            sheet.Cell(row, 5).Value = team.PlayerOne?.DuprId ?? "-";
+            if (!string.IsNullOrEmpty(team.PlayerOne?.DuprId))
+                sheet.Cell(row, 5).SetHyperlink(new XLHyperlink($"https://dashboard.dupr.com/dashboard/player/{team.PlayerOne?.Id}"));
             sheet.Range(row, 5, row, 6).Merge();
 
             // P1 Doubles DUPR (cols 7-8)
-            sheet.Cell(row, 7).Value = team.PlayerOne.DoublesDuprRating;
+            sheet.Cell(row, 7).Value = team.PlayerOne?.DoublesDuprRating ?? DoubleConstants.NoRating;
             sheet.Cell(row, 7).Style.NumberFormat.Format = "0.000";
             sheet.Cell(row, 7).Style.Fill.BackgroundColor = missingPartner
                 ? _noPartnerCheckColor
-                : GetDuprCellColor(team.PlayerOne.DoublesDuprRating, team, isPlayer1: true, lowerSkillRating, upperSkillRating);
+                : GetDuprCellColor(team.PlayerOne?.DoublesDuprRating ?? DoubleConstants.NoRating, team, isPlayer1: true, lowerSkillRating, upperSkillRating);
             sheet.Range(row, 7, row, 8).Merge();
 
-            if (sheet.Cell(row, 7).Style.Fill.BackgroundColor == _passedCheckColor && team.PlayerOne.DoublesDuprRating == DoubleConstants.NotFoundRating)
+            if (sheet.Cell(row, 7).Style.Fill.BackgroundColor == _passedCheckColor && team.PlayerOne?.DoublesDuprRating == DoubleConstants.NotFoundRating)
             {
                 sheet.Cell(row, 7).Style.Fill.BackgroundColor = _noRatingCheckColor;
             }
 
             // P2 Name (cols 9-10)
-            sheet.Cell(row, 9).Value = team.PlayerTwo.FullName;
-            if (!string.IsNullOrEmpty(team.PlayerTwo.PbbLink))
-                sheet.Cell(row, 9).SetHyperlink(new XLHyperlink(team.PlayerTwo.PbbLink));
+            sheet.Cell(row, 9).Value = team.PlayerTwo?.FullName ?? "";
+            if (!string.IsNullOrEmpty(team.PlayerTwo?.PbbLink))
+                sheet.Cell(row, 9).SetHyperlink(new XLHyperlink(team.PlayerTwo?.PbbLink));
             sheet.Range(row, 9, row, 10).Merge();
 
             // P2 DUPR ID (cols 11-12)
-            sheet.Cell(row, 11).Value = team.PlayerTwo.DuprId ?? "-";
-            if (!string.IsNullOrEmpty(team.PlayerTwo.DuprId))
-                sheet.Cell(row, 11).SetHyperlink(new XLHyperlink($"https://dashboard.dupr.com/dashboard/player/{team.PlayerTwo.Id}"));
+            sheet.Cell(row, 11).Value = team.PlayerTwo?.DuprId ?? "-";
+            if (!string.IsNullOrEmpty(team.PlayerTwo?.DuprId))
+                sheet.Cell(row, 11).SetHyperlink(new XLHyperlink($"https://dashboard.dupr.com/dashboard/player/{team.PlayerTwo?.Id}"));
             sheet.Range(row, 11, row, 12).Merge();
 
             // P2 Doubles DUPR (cols 13-14)
-            sheet.Cell(row, 13).Value = team.PlayerTwo.DoublesDuprRating;
+            sheet.Cell(row, 13).Value = team.PlayerTwo?.DoublesDuprRating ?? DoubleConstants.NoRating;
             sheet.Cell(row, 13).Style.NumberFormat.Format = "0.000";
             sheet.Cell(row, 13).Style.Fill.BackgroundColor = missingPartner
                 ? _noPartnerCheckColor
-                : GetDuprCellColor(team.PlayerTwo.DoublesDuprRating, team, isPlayer1: false, lowerSkillRating, upperSkillRating);
+                : GetDuprCellColor(team.PlayerTwo?.DoublesDuprRating ?? DoubleConstants.NoRating, team, isPlayer1: false, lowerSkillRating, upperSkillRating);
             sheet.Range(row, 13, row, 14).Merge();
 
-            if (sheet.Cell(row, 13).Style.Fill.BackgroundColor == _passedCheckColor && team.PlayerTwo.DoublesDuprRating == DoubleConstants.NotFoundRating)
+            if (sheet.Cell(row, 13).Style.Fill.BackgroundColor == _passedCheckColor && team.PlayerTwo?.DoublesDuprRating == DoubleConstants.NotFoundRating)
             {
                 sheet.Cell(row, 13).Style.Fill.BackgroundColor = _noRatingCheckColor;
             }
@@ -380,11 +380,11 @@ namespace TournamentDuprRatings.Services
             double hardFloor = lower - 0.500;
             double softFloor = lower - 0.150;
 
-            double partnerDoubles = isPlayer1 ? team.PlayerTwo.DoublesDuprRating : team.PlayerOne.DoublesDuprRating;
+            double partnerDoubles = isPlayer1 ? team?.PlayerTwo?.DoublesDuprRating ?? DoubleConstants.NoRating : team?.PlayerOne?.DoublesDuprRating ?? DoubleConstants.NoRating;
             bool playerUnrated = playerDoubles == 0.0;
             bool partnerUnrated = partnerDoubles == 0.0;
 
-            if (team.PlayerOne.DoublesDuprRating == 0.0 && team.PlayerTwo.DoublesDuprRating == 0.0)
+            if (team?.PlayerOne?.DoublesDuprRating == 0.0 && team?.PlayerTwo?.DoublesDuprRating == 0.0)
                 return upperSkillRating >= 4.0 ? _failedCheckColor : _passedCheckColor;
 
             if (playerUnrated || partnerUnrated)
@@ -400,7 +400,7 @@ namespace TournamentDuprRatings.Services
                 return _passedCheckColor;
 
             bool partnerInRange = partnerDoubles >= lower && partnerDoubles <= upper;
-            bool teamAvgAcceptable = team.AverageTeamDupr >= softFloor;
+            bool teamAvgAcceptable = team?.AverageTeamDupr >= softFloor;
 
             return partnerInRange || teamAvgAcceptable ? _passedCheckColor : _failedCheckColor;
         }

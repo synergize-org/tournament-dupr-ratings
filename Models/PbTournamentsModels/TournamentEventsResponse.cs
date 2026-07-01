@@ -5,10 +5,10 @@ namespace TournamentDuprRatings.Models.PbTournamentsModels
     public class TournamentEventsResponse
     {
         [JsonProperty("events")]
-        public List<EventGroup> Events { get; set; }
+        public List<EventGroup>? Events { get; set; }
 
         [JsonProperty("tourneyId")]
-        public string TourneyId { get; set; }
+        public string? TourneyId { get; set; }
 
         [JsonProperty("tourneyPlayerCountHidden")]
         public bool TourneyPlayerCountHidden { get; set; }

@@ -46,7 +46,7 @@ namespace TournamentDuprRatings.Services
 
             return new PlayerProfile
             {
-                DuprId = GetNodeValue(doc, _duprIdXpath),
+                DuprId = GetNodeValue(doc, _duprIdXpath) ?? string.Empty,
             };
         }
 
@@ -58,7 +58,7 @@ namespace TournamentDuprRatings.Services
 
         public record PlayerProfile
         {
-            public string? DuprId { get; init; }
+            public required string DuprId { get; init; }
         }
     }
 }

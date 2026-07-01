@@ -5,7 +5,7 @@ namespace TournamentDuprRatings.Models.PbTournamentsModels
     public class TournamentEvent
     {
         [JsonProperty("playerGroup")]
-        public string PlayerGroup { get; set; }
+        public string? PlayerGroup { get; set; }
 
         [JsonProperty("numOfRegistered")]
         public int NumOfRegistered { get; set; }
@@ -17,28 +17,28 @@ namespace TournamentDuprRatings.Models.PbTournamentsModels
         public int NumOfLottery { get; set; }
 
         [JsonProperty("format")]
-        public string Format { get; set; }
+        public string? Format { get; set; }
 
         [JsonProperty("formatId")]
         public int FormatId { get; set; }
 
         [JsonProperty("skillGroup")]
-        public string SkillGroup { get; set; }
+        public required string SkillGroup { get; set; }
 
         [JsonProperty("ageGroup")]
-        public string AgeGroup { get; set; }
+        public string? AgeGroup { get; set; }
 
         [JsonProperty("date")]
-        public string Date { get; set; }
+        public string? Date { get; set; }
 
         [JsonProperty("title")]
-        public string Title { get; set; }
+        public required string Title { get; set; }
 
         [JsonProperty("subtitle")]
-        public string Subtitle { get; set; }
+        public string? Subtitle { get; set; }
 
         [JsonProperty("bracketType")]
-        public string BracketType { get; set; }
+        public string? BracketType { get; set; }
 
         [JsonProperty("bracketFormatId")]
         public int BracketFormatId { get; set; }
@@ -47,34 +47,34 @@ namespace TournamentDuprRatings.Models.PbTournamentsModels
         public int MaxNumOfTeams { get; set; }
 
         [JsonProperty("status")]
-        public EventStatus Status { get; set; }
+        public EventStatus? Status { get; set; }
 
         [JsonProperty("multipleDates")]
-        public List<string> MultipleDates { get; set; }
+        public List<string>? MultipleDates { get; set; }
 
         [JsonProperty("eventId")]
-        public string EventId { get; set; }
+        public string? EventId { get; set; }
 
         [JsonProperty("activitySplitId")]
-        public string ActivitySplitId { get; set; }
+        public string? ActivitySplitId { get; set; }
 
         [JsonProperty("activityId")]
-        public string ActivityId { get; set; }
+        public string? ActivityId { get; set; }
 
         [JsonProperty("isCanceled")]
         public bool IsCanceled { get; set; }
 
         [JsonProperty("goldMedalTeam")]
-        public string GoldMedalTeam { get; set; }
+        public string? GoldMedalTeam { get; set; }
 
         [JsonProperty("silverMedalTeam")]
-        public string SilverMedalTeam { get; set; }
+        public string? SilverMedalTeam { get; set; }
 
         [JsonProperty("bronzeMedalTeam")]
-        public string BronzeMedalTeam { get; set; }
+        public string? BronzeMedalTeam { get; set; }
 
         [JsonProperty("players")]
-        public List<object> Players { get; set; }
+        public List<object>? Players { get; set; }
 
         [JsonProperty("lotteryActive")]
         public bool LotteryActive { get; set; }
@@ -95,7 +95,7 @@ namespace TournamentDuprRatings.Models.PbTournamentsModels
         public int CurrentSequence { get; set; }
 
         [JsonProperty("currentSequencePoolId")]
-        public string CurrentSequencePoolId { get; set; }
+        public string? CurrentSequencePoolId { get; set; }
 
         [JsonProperty("totalPools")]
         public int TotalPools { get; set; }
