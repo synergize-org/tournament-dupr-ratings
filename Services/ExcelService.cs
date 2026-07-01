@@ -125,7 +125,7 @@ namespace TournamentDuprRatings.Services
                 : XLColor.NoColor;
 
             // P1 Name (cols 3-4)
-            sheet.Cell(row, 3).Value = team.PlayerOne?.FullName ?? "";
+            sheet.Cell(row, 3).Value = SanitizeCellText(team.PlayerOne?.FullName ?? "");
             if (!string.IsNullOrEmpty(team.PlayerOne?.PbbLink))
                 sheet.Cell(row, 3).SetHyperlink(new XLHyperlink(team.PlayerOne.PbbLink));
             sheet.Range(row, 3, row, 4).Merge();
@@ -163,7 +163,7 @@ namespace TournamentDuprRatings.Services
                 : XLColor.NoColor;
 
             // P1 Name (cols 3-4)
-            sheet.Cell(row, 3).Value = team.PlayerOne?.FullName ?? "";
+            sheet.Cell(row, 3).Value = SanitizeCellText(team.PlayerOne?.FullName ?? "");
             if (!string.IsNullOrEmpty(team.PlayerOne?.PbbLink))
                 sheet.Cell(row, 3).SetHyperlink(new XLHyperlink(team.PlayerOne?.PbbLink));
             sheet.Range(row, 3, row, 4).Merge();
@@ -188,7 +188,7 @@ namespace TournamentDuprRatings.Services
             }
 
             // P2 Name (cols 9-10)
-            sheet.Cell(row, 9).Value = team.PlayerTwo?.FullName ?? "";
+            sheet.Cell(row, 9).Value = SanitizeCellText(team.PlayerTwo?.FullName ?? "");
             if (!string.IsNullOrEmpty(team.PlayerTwo?.PbbLink))
                 sheet.Cell(row, 9).SetHyperlink(new XLHyperlink(team.PlayerTwo?.PbbLink));
             sheet.Range(row, 9, row, 10).Merge();
@@ -358,6 +358,19 @@ namespace TournamentDuprRatings.Services
             var invalid = new[] { ':', '\\', '/', '?', '*', '[', ']' };
             var sanitized = string.Concat(name.Select(c => invalid.Contains(c) ? '_' : c)).Trim();
             return sanitized.Length > 31 ? sanitized[..31] : sanitized;
+        }
+
+        // Player names originate from third-party registration data (Pickleball Tournaments / DUPR)
+        // and are not trusted. Prefix values that would otherwise be interpreted as a formula
+        // (starting with =, +, -, or @) so Excel treats them as plain text instead of executing them.
+        private static readonly char[] _formulaTriggerChars = ['=', '+', '-', '@'];
+
+        private static string SanitizeCellText(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+                return value;
+
+            return _formulaTriggerChars.Contains(value[0]) ? "'" + value : value;
         }
 
         private static XLColor GetSinglesDuprCellColor(double playerSingles, double lower, double upper)

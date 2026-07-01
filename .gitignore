@@ -6,6 +6,10 @@
 # dotenv files
 .env
 
+# Local launch profiles often contain bearer tokens/secrets pasted in for debugging.
+# Copy Properties/launchSettings.example.json to Properties/launchSettings.json locally.
+Properties/launchSettings.json
+
 # User-specific files
 *.rsuser
 *.suo

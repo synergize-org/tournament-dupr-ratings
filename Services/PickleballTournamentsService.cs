@@ -35,7 +35,7 @@ public class PickleballTournamentsService(HttpClient httpClient)
 
     public async Task<TournamentEventsResponse> GetEventInfo(string eventName)
     {
-        var url = $"https://pickleballtournaments.com/tournaments/api/tourneyEvents?slug={eventName}";
+        var url = $"https://pickleballtournaments.com/tournaments/api/tourneyEvents?slug={Uri.EscapeDataString(eventName)}";
 
         var response = await httpClient.GetAsync(url);
 

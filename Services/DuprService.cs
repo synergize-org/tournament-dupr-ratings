@@ -8,8 +8,10 @@ namespace TournamentDuprRatings.Services;
 
 public class DuprService(HttpClient httpClient, string bearerToken)
 {
-    private static Dictionary<string, DuprPlayerInfo> _playerInfoCache = new Dictionary<string, DuprPlayerInfo>();
-    private Dictionary<string, DuprSearchByDuprIdResponse> _duprIdSearchCache = new Dictionary<string, DuprSearchByDuprIdResponse>();
+    // Instance-level (not static) so cached data can never leak between DuprService instances
+    // using different bearer tokens.
+    private readonly Dictionary<string, DuprPlayerInfo> _playerInfoCache = new Dictionary<string, DuprPlayerInfo>();
+    private readonly Dictionary<string, DuprSearchByDuprIdResponse> _duprIdSearchCache = new Dictionary<string, DuprSearchByDuprIdResponse>();
 
     public async Task<DuprPlayerInfo> GetPlayerInfo(string duprId)
     {

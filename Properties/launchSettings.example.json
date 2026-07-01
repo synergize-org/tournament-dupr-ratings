@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "Example Profile": {
+      "commandName": "Project",
+      "commandLineArgs": "--tournament-name your-tournament-slug --bearer-token <paste-your-dupr-bearer-token-here>"
+    }
+  }
+}

@@ -26,7 +26,7 @@ namespace TournamentDuprRatings.Services
                 return _cache[playerSlug];
             }
 
-            var url = $"{BaseUrl}{playerSlug}";
+            var url = $"{BaseUrl}{Uri.EscapeDataString(playerSlug)}";
 
             var html = await FetchHtmlAsync(url);
             return _cache[playerSlug] = ParsePlayerProfile(html);
