@@ -1,24 +1,26 @@
 # Tournament DUPR Ratings
 
-A .NET 8 console app that fetches player rosters from a Pickleball Tournaments event and looks up each player's DUPR singles and doubles ratings, outputting the results to the console and a CSV file.
+A .NET 10 console app that fetches player rosters from a Pickleball Tournaments event and looks up each player's DUPR singles and doubles ratings, outputting the results to the console and an Excel workbook.
 
 ## Prerequisites
 
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
 - A **DUPR Bearer Token** (obtain from your DUPR account)
-- A **Google Geocoding API key** with the Geocoding API enabled
 
-## Setup
+## Setup 
 
-Set the Google API key as an environment variable:
+### Acquire DUPR Bearer Token
 
-```bash
-# Windows (Command Prompt)
-set GOOGLE_API_KEY=your_key_here
-
-# Windows (PowerShell)
-$env:GOOGLE_API_KEY = "your_key_here"
-```
+1. Navigate to https://dashboard.dupr.com/login
+1. Before logging in click "F12" to open Developer view.
+1. Click the "Network" tab. 
+1. Login to DUPR.
+1. After it loads look for any call with the `api.dupr.gg` domain and click it. 
+1. This will open the "Headers" view. 
+1. Scroll down to the "Request Headers" section
+1. Look for "Authorization".
+1. We'll need to copy the value AFTER bearer. 
+1. It looks like this `Authorization: Bearer <valueToCopy>
 
 ## Usage
 
@@ -32,8 +34,7 @@ dotnet run
 
 ```
 DUPR Bearer Token: ********
-Activity ID: 12345
-Tournament zip code: 98101
+Tournament name (slug): colorado-cup-denver-qualifier-by-dpc
 ```
 
 ### With launch arguments
@@ -41,14 +42,14 @@ Tournament zip code: 98101
 Supply any combination of arguments to skip the corresponding prompts:
 
 ```bash
-dotnet run -- --bearer-token <token> --activity-id <id> --zip <zip>
+dotnet run -- --bearer-token <token> --tournament-name <tournament-name-from-pbb>
 ```
 
 | Argument | Description |
 |---|---|
 | `--bearer-token` | DUPR API bearer token |
-| `--activity-id` | Pickleball Tournaments event/activity ID |
-| `--zip` | Tournament zip code (used to bias DUPR search results by location) |
+| `--tournament-name` | Name of tournament from URL of Pickleball Tournaments |
+| `--test-json-result` | (Debug) Path to a previously captured JSON results file |
 
 ### VS Code
 
@@ -56,23 +57,29 @@ Fill in the values in `.vscode/launch.json` under the `args` and `env` fields, t
 
 ## Output
 
-- **Console** — a formatted table of teams and ratings
-- **CSV** — `tournament-{activityId}-ratings.csv` written to the working directory
+- **Console** — the raw JSON of processed events and teams
+- **Excel** — an `.xlsx` workbook with one sheet per player group/format/age group, written to the
+  `REPORT_OUTPUT_PATH` environment variable's directory if set, otherwise to your Documents folder
 
-### CSV columns
+### Excel columns
 
-`Team`, `Player1`, `Player1 DUPR ID`, `Player1 Doubles`, `Player1 Singles`, `Player2`, `Player2 DUPR ID`, `Player2 Doubles`, `Player2 Singles`
+Doubles sheets: `Place`, `Player 1 Name`, `Player 1 DUPR ID`, `Player 1 Doubles`, `Player 2 Name`, `Player 2 DUPR ID`, `Player 2 Doubles`, `Average Team DUPR`, `On Waitlist`
 
-Rating values show `NR` (not rated) when a player has no rating on record, or `Not Found` / `Skipped` when the player could not be matched in DUPR.
+Singles sheets: `Place`, `Player Name`, `DUPR ID`, `Singles DUPR`, `On Waitlist`
 
-## Disambiguation
+Rating values show `NR` (not rated) when a player has no rating on record. A `Summary` sheet is
+also generated with a color key explaining the cell highlight colors used on each division sheet:
 
-When a player name returns multiple DUPR matches you will be prompted to pick one:
+| Color | Meaning |
+|---|---|
+| White | Player DUPR is within the required range |
+| Salmon | Player DUPR does not meet division requirements |
+| Yellow (Flavescent) | Player has no partner assigned yet — unable to fully evaluate |
+| Purple (DarkOrchid) | Player DUPR rating not found |
 
-```
-3 matches — please select:
-  1. Jane Doe | Seattle, WA | Age: 34 | Dbl: 4.12 | Sgl: NR
-  2. Jane Doe | Portland, OR | Age: 28 | Dbl: 3.87 | Sgl: 3.91
-  3. Jane M. Doe | Seattle, WA | Age: 34 | Dbl: NR | Sgl: NR
-Enter number to select, or 0 to skip:
-```
+## How player lookups work
+
+Each player's DUPR ID is resolved by scraping their profile page on `pickleball.com` (via
+their Pickleball Tournaments slug), then that DUPR ID is used to fetch full rating details from
+the DUPR API. Lookups happen sequentially and results are cached for the duration of the run so
+the same player is never looked up twice.

@@ -2,224 +2,65 @@
 using TournamentDuprRatings.Constants;
 using TournamentDuprRatings.Helpers;
 using TournamentDuprRatings.Models;
+using TournamentDuprRatings.Models.PbTournamentsModels;
 using TournamentDuprRatings.Services;
 
 namespace TournamentDuprRatings;
 
 internal static class Program
 {
-    private static string _pickleBallTournamentsBaseUrl = PbbConstants.PickleBallTournamentsBaseUrl;
     private static async Task<int> Main(string[] args)
     {
+        LoadTestJsonResultIfProvided(args);
 
-        var testJsonResult = GetArg(args, "test-json-result");
-        if (!string.IsNullOrWhiteSpace(testJsonResult))
-        {
-            var testJsonFile = File.ReadAllText(testJsonResult);
-            //var results = JsonConvert.DeserializeObject<List<EventInfo>>(testJsonFile);
-            //ExcelService.GenerateEventResultsExcel(results, "test");
-        }
-
-        // Collect inputs — skip prompts for any values supplied as launch arguments
-        var bearerToken = GetArg(args, "bearer-token");
-        if (string.IsNullOrWhiteSpace(bearerToken))
-        {
-            Console.Write("DUPR Bearer Token: ");
-            bearerToken = OutputHelpers.ReadMaskedInput();
-        }
-
-        var tournamentName = GetArg(args, "tournament-name");
-        if (string.IsNullOrEmpty(tournamentName))
-        {
-            Console.Write("Tournament name (slug): ");
-            tournamentName = Console.ReadLine()?.Trim() ?? "";
-        }
+        var bearerToken = ResolveBearerToken(args);
+        var tournamentName = ResolveTournamentName(args);
 
         var httpClient = new HttpClient();
-
         var tournamentService = new PickleballTournamentsService(httpClient);
-        var fullTournamentDetails = await tournamentService.GetEventInfo(tournamentName);
-        var tournaments = new Dictionary<string, List<EventPlayer>>();
-        var outPutInfo = new List<EventResults>();
-        var cachedDuprId = new Dictionary<string, DuprPlayerInfo?>();
-        var lowerBoundary = new Dictionary<string, List<DuprPlayerInfo>>();
-        var upperBoundary = new Dictionary<string, List<DuprPlayerInfo>>();
-        var failedPlayerLookup = new List<PlayerInfo>();
-        var consolidatedTeamInfo = new List<TeamInfo>();
-        var eventInfo = new List<EventInfo>();
         var duprService = new DuprService(httpClient, bearerToken);
         var htmlScraper = new PickleballPlayerScraper();
 
+        var fullTournamentDetails = await tournamentService.GetEventInfo(tournamentName);
 
         if (fullTournamentDetails.Events == null || fullTournamentDetails.Events.Count == 0)
         {
             Console.Error.WriteLine($"No events found for tournament: {tournamentName}");
             return 1;
         }
-    
-        foreach (var group in fullTournamentDetails.Events)
+
+        // Cache of DUPR lookups shared across every bracket in the tournament
+        var cachedDuprId = new Dictionary<string, DuprPlayerInfo?>();
+        var eventInfo = new List<EventInfo>();
+
+        try
         {
-            if (group.Events == null || group.Events.Count == 0)
+            foreach (var group in fullTournamentDetails.Events)
             {
-                Console.Error.WriteLine($"No brackets found for event: {group.GroupTitle}");
-                continue;
-            }
-            
-            var consolidatedTeam = new TeamInfo();
-            foreach (var bracket in group.Events)
-            {
-                if (bracket.ActivityId == null)
+                if (group.Events == null || group.Events.Count == 0)
                 {
-                    Console.Error.WriteLine($"Skipping bracket {bracket.Title} due to missing ActivityId.");
+                    Console.Error.WriteLine($"No brackets found for event: {group.GroupTitle}");
                     continue;
                 }
-            
-                var skillGroup = RatingCalculationHelpers.GetSkillGroup(bracket.SkillGroup);
-                var currentEvent = new EventInfo
+
+                foreach (var bracket in group.Events)
                 {
-                    EventTitle = bracket.Title,
-                    SkillGroup = skillGroup,
-                    PlayerGroup = bracket.PlayerGroup,
-                    Format = bracket.Format,             
-                    AgeGroup = bracket.AgeGroup
-                };
-
-                // Fetch event players
-                Console.WriteLine("Fetching tournament players...");
-
-                try
-                {
-                    tournaments[bracket.ActivityId] = await tournamentService.GetEventPlayersAsync(bracket.ActivityId);
-                }
-                catch (Exception ex)
-                {
-                    Console.Error.WriteLine($"Error fetching players: {ex.Message}");
-                    return 1;
-                }
-
-                if (tournaments[bracket.ActivityId].Count == 0)
-                {
-                    Console.Error.WriteLine($"No players found for {bracket.Title}");
-                    continue;
-                }
-                Console.WriteLine($"Found {tournaments[bracket.ActivityId].Count} team entries.");
-
-                // Build unique player list
-                var uniquePlayers = PlayerListBuilder.BuildUniquePlayerList(tournaments[bracket.ActivityId]);
-                Console.WriteLine($"Unique players to look up: {uniquePlayers.Count}");
-
-                // DUPR lookups — sequential so disambiguation prompts never interleave
-                var playerResults = new Dictionary<string, DuprPlayerInfo?>(StringComparer.OrdinalIgnoreCase);
-                var skippedPlayers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-                foreach (var player in uniquePlayers)
-                {
-                    if (player.Slug == null)
+                    if (bracket.ActivityId == null)
                     {
-                        Console.WriteLine($"Skipping player {player.FullName} due to missing slug.");
+                        Console.Error.WriteLine($"Skipping bracket {bracket.Title} due to missing ActivityId.");
                         continue;
                     }
-                
-                    Console.WriteLine($"Looking up: https://pickleball.com/players/{player.Slug} ");
 
-                    var playerProfile = await htmlScraper.GetPlayerProfileAsync(player.Slug);                    
-
-                    DuprPlayerInfo playerInfo = new DuprPlayerInfo();
-              
-                    try
-                    {
-                        if (cachedDuprId.ContainsKey(playerProfile.DuprId))
-                        {
-                            playerResults[player.FullName] = cachedDuprId[playerProfile.DuprId];
-                        }
-                        else
-                        {
-                            playerInfo = await duprService.GetPlayerInfo(playerProfile.DuprId);
-                        }                        
-                    }
-                    catch (DuprUnauthorizedException)
-                    {
-                        Console.Error.WriteLine("\nError: Invalid or expired Bearer Token.");
-                        return 1;
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.Error.WriteLine($"\nDUPR API error: {ex.Message}");
-                        return 1;
-                    }
-
-                    if (playerInfo != null && !string.IsNullOrEmpty(playerInfo.Result.DuprId))
-                    {
-                        cachedDuprId.Add(playerProfile.DuprId, playerInfo);
-                        Console.WriteLine($"Found: {playerInfo.Result.FullName}");
-                        var playerDupr = playerResults[player.FullName] = playerInfo;
-
-                        if (skillGroup.lower != double.NaN && skillGroup.upper != double.NaN)
-                        {
-                            var rating = bracket.Format switch
-                            {
-                                "Doubles" => GetPlayerRating(playerDupr, true),
-                                "Singles" => GetPlayerRating(playerDupr, false),
-                                _ => DoubleConstants.NoRating
-                            };
-
-                            RatingCalculationHelpers.CheckRatingBoundary(bracket.Title, rating, skillGroup, playerDupr, upperBoundary, lowerBoundary);
-                        }
-                    }
-
-                    if (playerInfo == null || string.IsNullOrEmpty(playerInfo.Result.DuprId))
-                    {
-                        failedPlayerLookup.Add(new PlayerInfo
-                        {
-                            FullName = player.FullName,
-                            DuprId = playerProfile.DuprId,
-                            Slug = player.Slug,
-                        });
-                    }
+                    var currentEvent = await ProcessBracketAsync(bracket, tournamentService, duprService, htmlScraper, cachedDuprId);
+                    if (currentEvent != null)
+                        eventInfo.Add(currentEvent);
                 }
-
-                // Assemble TeamResults
-                var teams = new List<TeamResult>();
-                foreach (var ep in tournaments[bracket.ActivityId])
-                {
-                    ep.PartnerFullName?.Trim();
-                    currentEvent.Teams.Add(new TeamInfo
-                    {
-                        EventTitle = bracket.Title,
-                        EventId = bracket.ActivityId,
-                        IsOnWaitList = ep.IsOnWaitlist,
-                        PlayerOne = new PlayerInfo
-                        {
-                            FullName = ep.PlayerFullName ?? "",
-                            DuprId = OutputHelpers.ResolveHit(ep.PlayerFullName, playerResults)?.Result?.DuprId ?? "",
-                            Id = OutputHelpers.ResolveHit(ep.PlayerFullName, playerResults)?.Result?.Id ?? 0,
-                            Slug = ep.PlayerSlug ?? "",
-                            DoublesDuprRating = GetPlayerRating(OutputHelpers.ResolveHit(ep?.PlayerFullName, playerResults), true),
-                            SinglesDuprRating = GetPlayerRating(OutputHelpers.ResolveHit(ep?.PlayerFullName, playerResults), false),
-                            Age = OutputHelpers.ResolveHit(ep?.PlayerFullName, playerResults)?.Result?.Age ?? 0
-                        },
-                        PlayerTwo = new PlayerInfo
-                        {
-                            FullName = ep?.PartnerFullName ?? "",
-                            DuprId = OutputHelpers.ResolveHit(ep?.PartnerFullName, playerResults)?.Result?.DuprId ?? "",
-                            Id = OutputHelpers.ResolveHit(ep?.PartnerFullName, playerResults)?.Result?.Id ?? 0,
-                            Slug = ep?.PartnerSlug ?? "",
-                            DoublesDuprRating = GetPlayerRating(OutputHelpers.ResolveHit(ep?.PartnerFullName, playerResults), true),
-                            SinglesDuprRating = GetPlayerRating(OutputHelpers.ResolveHit(ep?.PartnerFullName, playerResults), false),
-                            Age = OutputHelpers.ResolveHit(ep?.PartnerFullName, playerResults)?.Result?.Age ?? 0
-                        }
-                    });
-                }
-
-                outPutInfo.Add(new EventResults
-                {
-                    SkillGroup = bracket.SkillGroup,
-                    Title = bracket.Title,
-                    TeamResults = teams
-                });
-
-                eventInfo.Add(currentEvent);
             }
+        }
+        catch (FatalProcessingException)
+        {
+            // The specific error was already written to the console by whichever step failed.
+            return 1;
         }
 
         // Output
@@ -230,7 +71,208 @@ internal static class Program
         return 0;
     }
 
-    private static double GetPlayerRating(DuprPlayerInfo playerInfo, bool isDoubles)
+    /// <summary>
+    /// Fetches the roster for a single bracket, resolves each player's DUPR rating, and assembles
+    /// the resulting teams. Returns null if the bracket has no players to process.
+    /// </summary>
+    private static async Task<EventInfo?> ProcessBracketAsync(
+        TournamentEvent bracket,
+        PickleballTournamentsService tournamentService,
+        DuprService duprService,
+        PickleballPlayerScraper htmlScraper,
+        Dictionary<string, DuprPlayerInfo?> cachedDuprId)
+    {
+        var currentEvent = new EventInfo
+        {
+            EventTitle = bracket.Title,
+            SkillGroup = RatingCalculationHelpers.GetSkillGroup(bracket.SkillGroup),
+            PlayerGroup = bracket.PlayerGroup,
+            Format = bracket.Format,
+            AgeGroup = bracket.AgeGroup
+        };
+
+        Console.WriteLine("Fetching tournament players...");
+
+        List<EventPlayer> bracketPlayers;
+        try
+        {
+            bracketPlayers = await tournamentService.GetEventPlayersAsync(bracket.ActivityId!);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error fetching players: {ex.Message}");
+            throw new FatalProcessingException();
+        }
+
+        if (bracketPlayers.Count == 0)
+        {
+            Console.Error.WriteLine($"No players found for {bracket.Title}");
+            return null;
+        }
+        Console.WriteLine($"Found {bracketPlayers.Count} team entries.");
+
+        var uniquePlayers = PlayerListBuilder.BuildUniquePlayerList(bracketPlayers);
+        Console.WriteLine($"Unique players to look up: {uniquePlayers.Count}");
+
+        var playerResults = await LookupPlayersAsync(uniquePlayers, htmlScraper, duprService, cachedDuprId);
+
+        currentEvent.Teams.AddRange(BuildTeams(bracket, bracketPlayers, playerResults));
+
+        return currentEvent;
+    }
+
+    /// <summary>
+    /// Looks up DUPR ratings for each unique player. Lookups are sequential (not parallel) so
+    /// disambiguation prompts never interleave.
+    /// </summary>
+    private static async Task<Dictionary<string, DuprPlayerInfo?>> LookupPlayersAsync(
+        List<PlayerEntry> uniquePlayers,
+        PickleballPlayerScraper htmlScraper,
+        DuprService duprService,
+        Dictionary<string, DuprPlayerInfo?> cachedDuprId)
+    {
+        var playerResults = new Dictionary<string, DuprPlayerInfo?>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var player in uniquePlayers)
+        {
+            if (player.Slug == null)
+            {
+                Console.WriteLine($"Skipping player {player.FullName} due to missing slug.");
+                continue;
+            }
+
+            playerResults[player.FullName] = await LookupSinglePlayerAsync(player, htmlScraper, duprService, cachedDuprId);
+        }
+
+        return playerResults;
+    }
+
+    /// <summary>
+    /// Resolves a single player's DUPR profile, using the shared cache when the player's DUPR ID
+    /// has already been looked up. Returns null if no rating could be found.
+    /// </summary>
+    private static async Task<DuprPlayerInfo?> LookupSinglePlayerAsync(
+        PlayerEntry player,
+        PickleballPlayerScraper htmlScraper,
+        DuprService duprService,
+        Dictionary<string, DuprPlayerInfo?> cachedDuprId)
+    {
+        Console.WriteLine($"Looking up: https://pickleball.com/players/{player.Slug} ");
+
+        var playerProfile = await htmlScraper.GetPlayerProfileAsync(player.Slug!);
+        var playerInfo = new DuprPlayerInfo();
+
+        try
+        {
+            if (cachedDuprId.TryGetValue(playerProfile.DuprId, out var cachedPlayerInfo))
+            {
+                return cachedPlayerInfo;
+            }
+
+            playerInfo = await duprService.GetPlayerInfo(playerProfile.DuprId);
+        }
+        catch (DuprUnauthorizedException)
+        {
+            Console.Error.WriteLine("\nError: Invalid or expired Bearer Token.");
+            throw new FatalProcessingException();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"\nDUPR API error: {ex.Message}");
+            throw new FatalProcessingException();
+        }
+
+        if (string.IsNullOrEmpty(playerInfo.Result.DuprId))
+        {
+            return null;
+        }
+
+        cachedDuprId.Add(playerProfile.DuprId, playerInfo);
+        Console.WriteLine($"Found: {playerInfo.Result.FullName}");
+        return playerInfo;
+    }
+
+    /// <summary>
+    /// Pairs each roster entry's player/partner with their resolved DUPR info to build the final team list.
+    /// </summary>
+    private static IEnumerable<TeamInfo> BuildTeams(
+        TournamentEvent bracket,
+        List<EventPlayer> bracketPlayers,
+        Dictionary<string, DuprPlayerInfo?> playerResults)
+    {
+        foreach (var ep in bracketPlayers)
+        {
+            yield return new TeamInfo
+            {
+                EventTitle = bracket.Title,
+                EventId = bracket.ActivityId,
+                IsOnWaitList = ep.IsOnWaitlist,
+                PlayerOne = BuildPlayerInfo(ep.PlayerFullName, ep.PlayerSlug, playerResults),
+                PlayerTwo = BuildPlayerInfo(ep.PartnerFullName, ep.PartnerSlug, playerResults)
+            };
+        }
+    }
+
+    private static PlayerInfo BuildPlayerInfo(
+        string? fullName,
+        string? slug,
+        Dictionary<string, DuprPlayerInfo?> playerResults)
+    {
+        var hit = OutputHelpers.ResolveHit(fullName, playerResults);
+        return new PlayerInfo
+        {
+            FullName = fullName ?? "",
+            DuprId = hit?.Result?.DuprId ?? "",
+            Id = hit?.Result?.Id ?? 0,
+            Slug = slug ?? "",
+            DoublesDuprRating = GetPlayerRating(hit, true),
+            SinglesDuprRating = GetPlayerRating(hit, false),
+            Age = hit?.Result?.Age ?? 0
+        };
+    }
+
+    /// <summary>Reads previously captured JSON document, for debugging.</summary>
+    private static void LoadTestJsonResultIfProvided(string[] args)
+    {
+        var testJsonResult = GetArg(args, "test-json-result");
+        if (string.IsNullOrWhiteSpace(testJsonResult))
+        {
+            return;
+        }
+
+        var testJsonFile = File.ReadAllText(testJsonResult);
+        //var results = JsonConvert.DeserializeObject<List<EventInfo>>(testJsonFile);
+        //ExcelService.GenerateEventResultsExcel(results, "test");
+    }
+
+    private static string ResolveBearerToken(string[] args)
+    {
+        var bearerToken = GetArg(args, "bearer-token");
+        if (string.IsNullOrWhiteSpace(bearerToken))
+        {
+            Console.Write("DUPR Bearer Token: ");
+            bearerToken = OutputHelpers.ReadMaskedInput();
+        }
+
+        return bearerToken;
+    }
+
+    private static string ResolveTournamentName(string[] args)
+    {
+        var tournamentName = GetArg(args, "tournament-name");
+        if (string.IsNullOrEmpty(tournamentName))
+        {
+            Console.Write("Tournament name (slug): ");
+            tournamentName = Console.ReadLine()?.Trim() ?? "";
+        }
+
+        return tournamentName;
+    }
+
+    /// <summary>Signals that a step failed in a way that should stop the whole run (error already logged).</summary>
+    private sealed class FatalProcessingException : Exception;
+
+    private static double GetPlayerRating(DuprPlayerInfo? playerInfo, bool isDoubles)
     {
         if (playerInfo == null)
         {
