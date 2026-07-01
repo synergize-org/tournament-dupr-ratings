@@ -23,7 +23,7 @@ namespace TournamentDuprRatings.Helpers
             if (skillGroupLower.Contains("and under"))
             {
                 var split = skillGroupLower.Split("and under");
-                return (0.0, double.Parse(split[0].Trim()));
+                return (0.0, double.Parse(split[0].Trim()) + 0.5);
             }
 
             if (skillGroupLower.Contains("and above"))
