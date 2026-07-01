@@ -1,363 +1,410 @@
 ﻿using ClosedXML.Excel;
-using System.Text.RegularExpressions;
 using TournamentDuprRatings.Constants;
+using TournamentDuprRatings.Constants.Excel;
 using TournamentDuprRatings.Models;
 
 namespace TournamentDuprRatings.Services
 {
+    /// <summary>
+    /// Builds the tournament results workbook: one worksheet per division (grouped by
+    /// player group / format / age group) plus a "Summary" sheet that links to every division
+    /// and explains the DUPR rating color-coding used throughout.
+    /// </summary>
     public class ExcelService
     {
-        // Doubles column map (each value spans 2 columns)
-        // 1-2: Place, 3-4: P1 Name, 5-6: P1 DUPR ID, 7-8: P1 Doubles
-        // 9-10: P2 Name, 11-12: P2 DUPR ID, 13-14: P2 Doubles
-        // 15-16: Avg Team DUPR, 17-18: On Waitlist, 19: UniqueId (hidden)
-        private const int DoublesColCount = 18;
-        private const int DoublesIdCol = 19;
-
-        // Singles column map (each value spans 2 columns)
-        // 1-2: Place, 3-4: P1 Name, 5-6: P1 DUPR ID, 7-8: P1 Singles, 9-10: On Waitlist, 11: UniqueId (hidden)
-        private const int SinglesColCount = 10;
-        private const int SinglesIdCol = 11;
-
-        private static readonly XLColor _passedCheckColor = XLColor.White;
-        private static readonly XLColor _failedCheckColor = XLColor.Salmon;
-        private static readonly XLColor _noPartnerCheckColor = XLColor.Flavescent;
-        private static readonly XLColor _noRatingCheckColor = XLColor.DarkOrchid;
+        private const string SinglesFormatName = "Singles";
+        private const string SummarySheetName = "Summary";
+        private const int SummarySheetPosition = 1;
+        private const int SummaryColumnCount = 2;
+        private const int RowsBetweenDivisions = 2;
+        private const int PlaceColumnWidth = 8;
+        private const int MaxExcelSheetNameLength = 31;
+        private const string RatingNumberFormat = "0.000";
+        private const string NoDuprIdLabel = "-";
+        private const string DuprDashboardPlayerUrlPrefix = "https://dashboard.dupr.com/dashboard/player/";
 
         public static void GenerateEventResultsExcel(List<EventInfo> eventInfo, string fileName)
         {
-            var timestamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
-            var outputDir = Environment.GetEnvironmentVariable("REPORT_OUTPUT_PATH")
-                ?? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-
-            var filePath = Path.Combine(outputDir, $"{fileName}_{timestamp}.xlsx");
-            Directory.CreateDirectory(outputDir);
+            var filePath = BuildOutputFilePath(fileName);
 
             using var workbook = new XLWorkbook();
 
-            var consolidatedSheets = eventInfo
-                .GroupBy(e => $"{e.PlayerGroup} {e.Format} - {e.AgeGroup}")
-                .ToList();
-
-            foreach (var sheetGroup in consolidatedSheets)
+            foreach (var sheetGroup in GroupEventsByDivisionSheet(eventInfo))
             {
-                var sheetName = SanitizeSheetName(sheetGroup.Key);
-                var sheet = workbook.Worksheets.Add(sheetName);
-                sheet.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-                sheet.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
-                bool isSingles = sheetGroup.FirstOrDefault()?.Format?.Equals("Singles", StringComparison.OrdinalIgnoreCase) ?? false;
-
-                int currentRow = 1;
-                foreach (var tournamentInfo in sheetGroup)
-                {
-                    currentRow = WriteEventSection(sheet, tournamentInfo, currentRow, isSingles);
-                    currentRow += 2; // Empty row between divisions
-                }
-
-                sheet.Columns().AdjustToContents();
-                sheet.Column(1).Width = 8;
-                sheet.Column(2).Width = 8;
+                WriteDivisionSheet(workbook, sheetGroup);
             }
 
             UpdateSummarySheet(workbook, eventInfo);
             workbook.SaveAs(filePath);
         }
 
+        /// <summary>Builds the timestamped output path, creating the destination directory if needed.</summary>
+        private static string BuildOutputFilePath(string fileName)
+        {
+            var timestamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
+            var outputDir = Environment.GetEnvironmentVariable("REPORT_OUTPUT_PATH")
+                ?? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+
+            Directory.CreateDirectory(outputDir);
+            return Path.Combine(outputDir, $"{fileName}_{timestamp}.xlsx");
+        }
+
+        /// <summary>Groups events into one worksheet per player group / format / age group combination.</summary>
+        private static List<IGrouping<string, EventInfo>> GroupEventsByDivisionSheet(List<EventInfo> eventInfo) =>
+            eventInfo.GroupBy(e => $"{e.PlayerGroup} {e.Format} - {e.AgeGroup}").ToList();
+
+        /// <summary>Writes every division section belonging to one worksheet, then auto-sizes its columns.</summary>
+        private static void WriteDivisionSheet(XLWorkbook workbook, IGrouping<string, EventInfo> sheetGroup)
+        {
+            var sheet = workbook.Worksheets.Add(SanitizeSheetName(sheetGroup.Key));
+            sheet.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            sheet.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+
+            bool isSingles = sheetGroup.FirstOrDefault()?.Format?.Equals(SinglesFormatName, StringComparison.OrdinalIgnoreCase) ?? false;
+
+            int currentRow = 1;
+            foreach (var divisionEvent in sheetGroup)
+            {
+                currentRow = WriteEventSection(sheet, divisionEvent, currentRow, isSingles) + RowsBetweenDivisions;
+            }
+
+            sheet.Columns().AdjustToContents();
+            sheet.Column(ExcelColumns.Place).Width = PlaceColumnWidth;
+            sheet.Column(ExcelColumns.Place + 1).Width = PlaceColumnWidth;
+        }
+
+        /// <summary>Writes one division's title, column headers, and team rows. Returns the last row written.</summary>
         private static int WriteEventSection(IXLWorksheet sheet, EventInfo eventInfo, int startRow, bool isSingles)
         {
-            int colCount = isSingles ? SinglesColCount : DoublesColCount;
+            int visibleColumnCount = isSingles ? ExcelColumns.Singles.VisibleColumnCount : ExcelColumns.Doubles.VisibleColumnCount;
 
-            // Section title header — spans all columns
-            var titleCell = sheet.Cell(startRow, 1);
-            titleCell.Value = eventInfo.EventTitle;
+            int row = WriteSectionTitle(sheet, eventInfo.EventTitle, startRow, visibleColumnCount);
+            row = WriteColumnHeaders(sheet, row, isSingles);
+
+            int place = 1;
+            foreach (var team in eventInfo.Teams)
+            {
+                bool isEvenRow = place % 2 == 0;
+                if (isSingles)
+                    WriteSinglesRow(sheet, row, team, isEvenRow, eventInfo.SkillGroup.lower, eventInfo.SkillGroup.upper);
+                else
+                    WriteDoublesRow(sheet, row, team, isEvenRow, eventInfo.SkillGroup.lower, eventInfo.SkillGroup.upper);
+
+                sheet.Cell(row, ExcelColumns.Place).Value = place++;
+                MergeColumnSpan(sheet, row, ExcelColumns.Place);
+
+                row++;
+            }
+
+            return row - 1;
+        }
+
+        private static int WriteSectionTitle(IXLWorksheet sheet, string? title, int row, int visibleColumnCount)
+        {
+            var titleCell = sheet.Cell(row, 1);
+            titleCell.Value = title;
             titleCell.Style.Font.Bold = true;
-            titleCell.Style.Font.FontSize = 14;
-            titleCell.Style.Font.FontColor = _passedCheckColor;
-            titleCell.Style.Fill.BackgroundColor = XLColor.FromArgb(31, 73, 125);
+            titleCell.Style.Font.FontSize = ExcelFontSizes.SectionTitle;
+            titleCell.Style.Font.FontColor = ExcelPalette.HeaderText;
+            titleCell.Style.Fill.BackgroundColor = ExcelPalette.TitleBackground;
             titleCell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            sheet.Range(startRow, 1, startRow, colCount).Merge();
-            startRow++;
+            sheet.Range(row, 1, row, visibleColumnCount).Merge();
 
-            // Column headers — each spans 2 columns
+            return row + 1;
+        }
+
+        private static int WriteColumnHeaders(IXLWorksheet sheet, int row, bool isSingles)
+        {
             string[] headers = isSingles
                 ? ["Place", "Player Name", "DUPR ID", "Singles DUPR", "On Waitlist"]
                 : ["Place", "Player 1 Name", "Player 1 DUPR ID", "Player 1 Doubles", "Player 2 Name", "Player 2 DUPR ID", "Player 2 Doubles", "Average Team DUPR", "On Waitlist"];
 
             for (int i = 0; i < headers.Length; i++)
             {
-                int col = (i * 2) + 1;
-                var cell = sheet.Cell(startRow, col);
+                int col = (i * ExcelColumns.ColumnSpan) + 1;
+                var cell = sheet.Cell(row, col);
                 cell.Value = headers[i];
                 cell.Style.Font.Bold = true;
-                cell.Style.Font.FontColor = _passedCheckColor;
-                cell.Style.Fill.BackgroundColor = XLColor.FromArgb(68, 114, 196);
+                cell.Style.Font.FontColor = ExcelPalette.HeaderText;
+                cell.Style.Fill.BackgroundColor = ExcelPalette.AccentBlue;
                 cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
                 cell.Style.Border.BottomBorder = XLBorderStyleValues.Medium;
-                sheet.Range(startRow, col, startRow, col + 1).Merge();
-            }
-            startRow++;
-
-            // Team rows
-            int place = 1;
-            foreach (var team in eventInfo.Teams)
-            {
-                bool isEvenRow = place % 2 == 0;
-                if (isSingles)
-                    WriteSinglesRow(sheet, startRow, team, isEvenRow, eventInfo.SkillGroup.lower, eventInfo.SkillGroup.upper);
-                else
-                    WriteDoublesRow(sheet, startRow, team, isEvenRow, eventInfo.SkillGroup.lower, eventInfo.SkillGroup.upper);
-
-                // Place spans cols 1-2
-                sheet.Cell(startRow, 1).Value = place++;
-                sheet.Range(startRow, 1, startRow, 2).Merge();
-
-                startRow++;
+                MergeColumnSpan(sheet, row, col);
             }
 
-            return startRow - 1;
+            return row + 1;
         }
 
         private static void WriteSinglesRow(IXLWorksheet sheet, int row, TeamInfo team, bool isEvenRow, double lowerSkillRating, double upperSkillRating)
-        {              
-            var rowRange = sheet.Range(row, 1, row, SinglesColCount);
-            rowRange.Style.Fill.BackgroundColor = isEvenRow
-                ? XLColor.FromArgb(235, 241, 250)
-                : XLColor.NoColor;
+        {
+            ApplyRowShading(sheet, row, ExcelColumns.Singles.VisibleColumnCount, isEvenRow);
 
-            // P1 Name (cols 3-4)
-            sheet.Cell(row, 3).Value = SanitizeCellText(team.PlayerOne?.FullName ?? "");
-            if (!string.IsNullOrEmpty(team.PlayerOne?.PbbLink))
-                sheet.Cell(row, 3).SetHyperlink(new XLHyperlink(team.PlayerOne.PbbLink));
-            sheet.Range(row, 3, row, 4).Merge();
+            WritePlayerNameCell(sheet, row, ExcelColumns.Singles.PlayerName, team.PlayerOne);
+            WriteDuprIdCell(sheet, row, ExcelColumns.Singles.PlayerDuprId, team.PlayerOne);
 
-            // P1 DUPR ID (cols 5-6)
-            sheet.Cell(row, 5).Value = team.PlayerOne?.DuprId ?? "-";
-            if (!string.IsNullOrEmpty(team.PlayerOne?.DuprId))
-                sheet.Cell(row, 5).SetHyperlink(new XLHyperlink($"https://dashboard.dupr.com/dashboard/player/{team.PlayerOne?.Id}"));
-            sheet.Range(row, 5, row, 6).Merge();
+            double rating = team.PlayerOne?.SinglesDuprRating ?? DoubleConstants.NoRating;
+            var ratingCell = sheet.Cell(row, ExcelColumns.Singles.PlayerRating);
+            ratingCell.Value = rating;
+            ratingCell.Style.NumberFormat.Format = RatingNumberFormat;
+            ratingCell.Style.Fill.BackgroundColor = GetSinglesDuprCellColor(rating, lowerSkillRating, upperSkillRating);
+            MergeColumnSpan(sheet, row, ExcelColumns.Singles.PlayerRating);
 
-            // P1 Singles DUPR (cols 7-8)
-            sheet.Cell(row, 7).Value = team.PlayerOne?.SinglesDuprRating ?? DoubleConstants.NoRating;
-            sheet.Cell(row, 7).Style.NumberFormat.Format = "0.000";
-            sheet.Cell(row, 7).Style.Fill.BackgroundColor = GetSinglesDuprCellColor(team.PlayerOne?.SinglesDuprRating ?? DoubleConstants.NoRating, lowerSkillRating, upperSkillRating);
-            sheet.Range(row, 7, row, 8).Merge();
-
-            // On Waitlist (cols 9-10)
-            sheet.Cell(row, 9).Value = team.IsOnWaitList ? "Yes" : "No";
-            sheet.Range(row, 9, row, 10).Merge();
-
-            // Hidden UniqueId (col 11)
-            var idCell = sheet.Cell(row, SinglesIdCol);
-            idCell.Value = team.UniqueId;
-            idCell.Style.Fill.BackgroundColor = XLColor.NoColor;
-            sheet.Column(SinglesIdCol).Hide();
+            WriteWaitlistCell(sheet, row, ExcelColumns.Singles.OnWaitlist, team.IsOnWaitList);
+            WriteHiddenUniqueIdCell(sheet, row, ExcelColumns.Singles.UniqueId, team.UniqueId);
         }
 
         private static void WriteDoublesRow(IXLWorksheet sheet, int row, TeamInfo team, bool isEvenRow, double lowerSkillRating, double upperSkillRating)
         {
             bool missingPartner = string.IsNullOrEmpty(team.PlayerTwo?.FullName?.Trim());
 
-            var rowRange = sheet.Range(row, 1, row, DoublesColCount);
-            rowRange.Style.Fill.BackgroundColor = isEvenRow
-                ? XLColor.FromArgb(235, 241, 250)
-                : XLColor.NoColor;
+            ApplyRowShading(sheet, row, ExcelColumns.Doubles.VisibleColumnCount, isEvenRow);
 
-            // P1 Name (cols 3-4)
-            sheet.Cell(row, 3).Value = SanitizeCellText(team.PlayerOne?.FullName ?? "");
-            if (!string.IsNullOrEmpty(team.PlayerOne?.PbbLink))
-                sheet.Cell(row, 3).SetHyperlink(new XLHyperlink(team.PlayerOne?.PbbLink));
-            sheet.Range(row, 3, row, 4).Merge();
+            WritePlayerNameCell(sheet, row, ExcelColumns.Doubles.Player1Name, team.PlayerOne);
+            WriteDuprIdCell(sheet, row, ExcelColumns.Doubles.Player1DuprId, team.PlayerOne);
+            WriteDoublesRatingCell(sheet, row, ExcelColumns.Doubles.Player1Rating, team, isPlayer1: true, missingPartner, lowerSkillRating, upperSkillRating);
 
-            // P1 DUPR ID (cols 5-6)
-            sheet.Cell(row, 5).Value = team.PlayerOne?.DuprId ?? "-";
-            if (!string.IsNullOrEmpty(team.PlayerOne?.DuprId))
-                sheet.Cell(row, 5).SetHyperlink(new XLHyperlink($"https://dashboard.dupr.com/dashboard/player/{team.PlayerOne?.Id}"));
-            sheet.Range(row, 5, row, 6).Merge();
+            WritePlayerNameCell(sheet, row, ExcelColumns.Doubles.Player2Name, team.PlayerTwo);
+            WriteDuprIdCell(sheet, row, ExcelColumns.Doubles.Player2DuprId, team.PlayerTwo);
+            WriteDoublesRatingCell(sheet, row, ExcelColumns.Doubles.Player2Rating, team, isPlayer1: false, missingPartner, lowerSkillRating, upperSkillRating);
 
-            // P1 Doubles DUPR (cols 7-8)
-            sheet.Cell(row, 7).Value = team.PlayerOne?.DoublesDuprRating ?? DoubleConstants.NoRating;
-            sheet.Cell(row, 7).Style.NumberFormat.Format = "0.000";
-            sheet.Cell(row, 7).Style.Fill.BackgroundColor = missingPartner
-                ? _noPartnerCheckColor
-                : GetDuprCellColor(team.PlayerOne?.DoublesDuprRating ?? DoubleConstants.NoRating, team, isPlayer1: true, lowerSkillRating, upperSkillRating);
-            sheet.Range(row, 7, row, 8).Merge();
+            var avgCell = sheet.Cell(row, ExcelColumns.Doubles.AverageTeamDupr);
+            avgCell.Value = team.AverageTeamDupr;
+            avgCell.Style.NumberFormat.Format = RatingNumberFormat;
+            MergeColumnSpan(sheet, row, ExcelColumns.Doubles.AverageTeamDupr);
 
-            if (sheet.Cell(row, 7).Style.Fill.BackgroundColor == _passedCheckColor && team.PlayerOne?.DoublesDuprRating == DoubleConstants.NotFoundRating)
-            {
-                sheet.Cell(row, 7).Style.Fill.BackgroundColor = _noRatingCheckColor;
-            }
-
-            // P2 Name (cols 9-10)
-            sheet.Cell(row, 9).Value = SanitizeCellText(team.PlayerTwo?.FullName ?? "");
-            if (!string.IsNullOrEmpty(team.PlayerTwo?.PbbLink))
-                sheet.Cell(row, 9).SetHyperlink(new XLHyperlink(team.PlayerTwo?.PbbLink));
-            sheet.Range(row, 9, row, 10).Merge();
-
-            // P2 DUPR ID (cols 11-12)
-            sheet.Cell(row, 11).Value = team.PlayerTwo?.DuprId ?? "-";
-            if (!string.IsNullOrEmpty(team.PlayerTwo?.DuprId))
-                sheet.Cell(row, 11).SetHyperlink(new XLHyperlink($"https://dashboard.dupr.com/dashboard/player/{team.PlayerTwo?.Id}"));
-            sheet.Range(row, 11, row, 12).Merge();
-
-            // P2 Doubles DUPR (cols 13-14)
-            sheet.Cell(row, 13).Value = team.PlayerTwo?.DoublesDuprRating ?? DoubleConstants.NoRating;
-            sheet.Cell(row, 13).Style.NumberFormat.Format = "0.000";
-            sheet.Cell(row, 13).Style.Fill.BackgroundColor = missingPartner
-                ? _noPartnerCheckColor
-                : GetDuprCellColor(team.PlayerTwo?.DoublesDuprRating ?? DoubleConstants.NoRating, team, isPlayer1: false, lowerSkillRating, upperSkillRating);
-            sheet.Range(row, 13, row, 14).Merge();
-
-            if (sheet.Cell(row, 13).Style.Fill.BackgroundColor == _passedCheckColor && team.PlayerTwo?.DoublesDuprRating == DoubleConstants.NotFoundRating)
-            {
-                sheet.Cell(row, 13).Style.Fill.BackgroundColor = _noRatingCheckColor;
-            }
-
-            // Avg Team DUPR (cols 15-16)
-            sheet.Cell(row, 15).Value = team.AverageTeamDupr;
-            sheet.Cell(row, 15).Style.NumberFormat.Format = "0.000";
-            sheet.Range(row, 15, row, 16).Merge();
-
-            // On Waitlist (cols 17-18)
-            sheet.Cell(row, 17).Value = team.IsOnWaitList ? "Yes" : "No";
-            sheet.Range(row, 17, row, 18).Merge();
-
-            // Hidden UniqueId (col 19)
-            var idCell = sheet.Cell(row, DoublesIdCol);
-            idCell.Value = team.UniqueId;
-            idCell.Style.Fill.BackgroundColor = XLColor.NoColor;
-            sheet.Column(DoublesIdCol).Hide();
+            WriteWaitlistCell(sheet, row, ExcelColumns.Doubles.OnWaitlist, team.IsOnWaitList);
+            WriteHiddenUniqueIdCell(sheet, row, ExcelColumns.Doubles.UniqueId, team.UniqueId);
         }
+
+        /// <summary>Shades the full row for readability, alternating between white and light blue.</summary>
+        private static void ApplyRowShading(IXLWorksheet sheet, int row, int visibleColumnCount, bool isEvenRow)
+        {
+            sheet.Range(row, 1, row, visibleColumnCount).Style.Fill.BackgroundColor = isEvenRow
+                ? ExcelPalette.EvenRowBackground
+                : XLColor.NoColor;
+        }
+
+        /// <summary>Writes a player's display name, linking to their pickleball.com profile when available.</summary>
+        private static void WritePlayerNameCell(IXLWorksheet sheet, int row, int col, PlayerInfo? player)
+        {
+            var cell = sheet.Cell(row, col);
+            cell.Value = SanitizeCellText(player?.FullName ?? "");
+            if (!string.IsNullOrEmpty(player?.PbbLink))
+                cell.SetHyperlink(new XLHyperlink(player.PbbLink));
+            MergeColumnSpan(sheet, row, col);
+        }
+
+        /// <summary>Writes a player's DUPR id, linking to their DUPR dashboard profile when available.</summary>
+        private static void WriteDuprIdCell(IXLWorksheet sheet, int row, int col, PlayerInfo? player)
+        {
+            var cell = sheet.Cell(row, col);
+            cell.Value = player?.DuprId ?? NoDuprIdLabel;
+            if (!string.IsNullOrEmpty(player?.DuprId))
+                cell.SetHyperlink(new XLHyperlink($"{DuprDashboardPlayerUrlPrefix}{player?.Id}"));
+            MergeColumnSpan(sheet, row, col);
+        }
+
+        /// <summary>
+        /// Writes one player's doubles DUPR rating cell, colored according to division requirements
+        /// (or flagged as "no partner" when the team roster is incomplete).
+        /// </summary>
+        private static void WriteDoublesRatingCell(IXLWorksheet sheet, int row, int col, TeamInfo team, bool isPlayer1, bool missingPartner, double lowerSkillRating, double upperSkillRating)
+        {
+            var player = isPlayer1 ? team.PlayerOne : team.PlayerTwo;
+            double rating = player?.DoublesDuprRating ?? DoubleConstants.NoRating;
+
+            var color = missingPartner
+                ? ExcelPalette.NoPartnerCheck
+                : GetDoublesDuprCellColor(rating, team, isPlayer1, lowerSkillRating, upperSkillRating);
+            color = ApplyRatingNotFoundOverride(color, player?.DoublesDuprRating);
+
+            var cell = sheet.Cell(row, col);
+            cell.Value = rating;
+            cell.Style.NumberFormat.Format = RatingNumberFormat;
+            cell.Style.Fill.BackgroundColor = color;
+            MergeColumnSpan(sheet, row, col);
+        }
+
+        private static void WriteWaitlistCell(IXLWorksheet sheet, int row, int col, bool isOnWaitlist)
+        {
+            sheet.Cell(row, col).Value = isOnWaitlist ? "Yes" : "No";
+            MergeColumnSpan(sheet, row, col);
+        }
+
+        /// <summary>Writes the team's unique id into a hidden column, used for future lookups/debugging.</summary>
+        private static void WriteHiddenUniqueIdCell(IXLWorksheet sheet, int row, int col, string uniqueId)
+        {
+            var idCell = sheet.Cell(row, col);
+            idCell.Value = uniqueId;
+            idCell.Style.Fill.BackgroundColor = XLColor.NoColor;
+            sheet.Column(col).Hide();
+        }
+
+        /// <summary>Merges a field's 2-column span (starting at <paramref name="col"/>) into one visual cell.</summary>
+        private static void MergeColumnSpan(IXLWorksheet sheet, int row, int col) =>
+            sheet.Range(row, col, row, col + ExcelColumns.ColumnSpan - 1).Merge();
+
+        /// <summary>
+        /// Defensive override: if the computed color is "passed" for a player whose DUPR lookup
+        /// failed entirely (as opposed to simply being unrated), force the "rating not found" color instead.
+        /// </summary>
+        private static XLColor ApplyRatingNotFoundOverride(XLColor computedColor, double? rating) =>
+            computedColor == ExcelPalette.PassedCheck && rating == DoubleConstants.NotFoundRating
+                ? ExcelPalette.NoRatingCheck
+                : computedColor;
+
+        private static readonly (XLColor Color, string Description)[] _colorKeyEntries =
+        [
+            (ExcelPalette.PassedCheck, "Player DUPR is within the required range"),
+            (ExcelPalette.FailedCheck, "Player DUPR does not meet division requirements"),
+            (ExcelPalette.NoPartnerCheck, "Player has no partner assigned yet — unable to fully evaluate"),
+            (ExcelPalette.NoRatingCheck, "Player DUPR rating not found"),
+        ];
 
         private static void UpdateSummarySheet(XLWorkbook workbook, List<EventInfo> eventInfo)
         {
-            const string summaryName = "Summary";
+            var summary = workbook.Worksheets.Add(SummarySheetName);
+            workbook.Worksheets.Worksheet(SummarySheetName).Position = SummarySheetPosition;
 
-            var summary = workbook.Worksheets.Add(summaryName);
-            workbook.Worksheets.Worksheet(summaryName).Position = 1;
+            int currentRow = WriteSummaryTitle(summary, 1);
+            currentRow = WriteColorKeySection(summary, currentRow);
+            currentRow++; // Spacer between the color key and the division list
 
-            // Title header
-            var titleCell = summary.Cell(1, 1);
-            titleCell.Value = "Event Summary";
-            titleCell.Style.Font.Bold = true;
-            titleCell.Style.Font.FontSize = 16;
-            titleCell.Style.Font.FontColor = _passedCheckColor;
-            titleCell.Style.Fill.BackgroundColor = XLColor.FromArgb(31, 73, 125);
-            titleCell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            summary.Range(1, 1, 1, 2).Merge();
-
-            // Color key header
-            int currentRow = 2;
-            var keyHeaderCell = summary.Cell(currentRow, 1);
-            keyHeaderCell.Value = "Color Key";
-            keyHeaderCell.Style.Font.Bold = true;
-            keyHeaderCell.Style.Font.FontSize = 12;
-            keyHeaderCell.Style.Font.FontColor = _passedCheckColor;
-            keyHeaderCell.Style.Fill.BackgroundColor = XLColor.FromArgb(68, 114, 196);
-            keyHeaderCell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            summary.Range(currentRow, 1, currentRow, 2).Merge();
-            currentRow++;
-
-            var colorKeys = new[]
-            {
-        (_passedCheckColor,  "Player DUPR is within the required range"),
-        (_failedCheckColor, "Player DUPR does not meet division requirements"),
-        (_noPartnerCheckColor, "Player has no partner assigned yet — unable to fully evaluate"),
-        (_noRatingCheckColor, "Player DUPR rating not found")
-    };
-
-            foreach (var (color, description) in colorKeys)
-            {
-                // Color swatch cell
-                var swatchCell = summary.Cell(currentRow, 1);
-                swatchCell.Style.Fill.BackgroundColor = color;
-                swatchCell.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
-                swatchCell.Style.Border.OutsideBorderColor = XLColor.FromArgb(68, 114, 196);
-
-                // Description cell
-                var descCell = summary.Cell(currentRow, 2);
-                descCell.Value = description;
-                descCell.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
-                descCell.Style.Font.FontSize = 11;
-
-                currentRow++;
-            }
-
-            // Spacer between key and division list
-            currentRow++;
-
-            var grouped = eventInfo
-                .GroupBy(e => $"{e.PlayerGroup} {e.Format}")
-                .OrderBy(g => g.Key)
-                .ToList();
-
-            int divisionNumber = 1;
-
-            foreach (var group in grouped)
-            {
-                var categoryCell = summary.Cell(currentRow, 1);
-                categoryCell.Value = group.Key;
-                categoryCell.Style.Font.Bold = true;
-                categoryCell.Style.Font.FontSize = 12;
-                categoryCell.Style.Font.FontColor = _passedCheckColor;
-                categoryCell.Style.Fill.BackgroundColor = XLColor.FromArgb(68, 114, 196);
-                categoryCell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-                summary.Range(currentRow, 1, currentRow, 2).Merge();
-                currentRow++;
-
-                summary.Cell(currentRow, 1).Value = "#";
-                summary.Cell(currentRow, 2).Value = "Division";
-
-                foreach (var cell in summary.Range(currentRow, 1, currentRow, 2).Cells())
-                {
-                    cell.Style.Font.Bold = true;
-                    cell.Style.Font.FontColor = XLColor.FromArgb(31, 73, 125);
-                    cell.Style.Fill.BackgroundColor = XLColor.FromArgb(189, 215, 238);
-                    cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-                    cell.Style.Border.BottomBorder = XLBorderStyleValues.Thin;
-                }
-                currentRow++;
-
-                var ageGroups = group
-                    .GroupBy(e => e.AgeGroup)
-                    .OrderBy(g => g.Key)
-                    .ToList();
-
-                int categoryIndex = 0;
-                foreach (var ageGroup in ageGroups)
-                {
-                    var sheetName = SanitizeSheetName($"{group.First().PlayerGroup} {group.First().Format} - {ageGroup.Key}");
-                    if (!workbook.Worksheets.TryGetWorksheet(sheetName, out var ws))
-                        continue;
-
-                    bool isEvenRow = categoryIndex % 2 == 0;
-
-                    summary.Cell(currentRow, 1).Value = divisionNumber++;
-                    summary.Cell(currentRow, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-
-                    var linkCell = summary.Cell(currentRow, 2);
-                    linkCell.Value = $"{group.First().PlayerGroup} {group.First().Format} - {ageGroup.Key}";
-                    linkCell.SetHyperlink(new XLHyperlink($"'{ws.Name}'!A1"));
-                    linkCell.Style.Font.FontColor = XLColor.FromArgb(68, 114, 196);
-                    linkCell.Style.Font.Underline = XLFontUnderlineValues.Single;
-
-                    if (isEvenRow)
-                        summary.Range(currentRow, 1, currentRow, 2).Style.Fill.BackgroundColor = XLColor.FromArgb(235, 241, 250);
-
-                    currentRow++;
-                    categoryIndex++;
-                }
-
-                currentRow++;
-            }
+            WriteDivisionGroups(workbook, summary, eventInfo, currentRow);
 
             summary.Columns().AdjustToContents();
         }
 
+        private static int WriteSummaryTitle(IXLWorksheet summary, int row)
+        {
+            var titleCell = summary.Cell(row, 1);
+            titleCell.Value = "Event Summary";
+            titleCell.Style.Font.Bold = true;
+            titleCell.Style.Font.FontSize = ExcelFontSizes.SummaryTitle;
+            titleCell.Style.Font.FontColor = ExcelPalette.HeaderText;
+            titleCell.Style.Fill.BackgroundColor = ExcelPalette.TitleBackground;
+            titleCell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            summary.Range(row, 1, row, SummaryColumnCount).Merge();
+
+            return row + 1;
+        }
+
+        private static int WriteColorKeySection(IXLWorksheet summary, int row)
+        {
+            var keyHeaderCell = summary.Cell(row, 1);
+            keyHeaderCell.Value = "Color Key";
+            keyHeaderCell.Style.Font.Bold = true;
+            keyHeaderCell.Style.Font.FontSize = ExcelFontSizes.SectionHeader;
+            keyHeaderCell.Style.Font.FontColor = ExcelPalette.HeaderText;
+            keyHeaderCell.Style.Fill.BackgroundColor = ExcelPalette.AccentBlue;
+            keyHeaderCell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            summary.Range(row, 1, row, SummaryColumnCount).Merge();
+            row++;
+
+            foreach (var (color, description) in _colorKeyEntries)
+            {
+                var swatchCell = summary.Cell(row, 1);
+                swatchCell.Style.Fill.BackgroundColor = color;
+                swatchCell.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+                swatchCell.Style.Border.OutsideBorderColor = ExcelPalette.AccentBlue;
+
+                var descCell = summary.Cell(row, 2);
+                descCell.Value = description;
+                descCell.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+                descCell.Style.Font.FontSize = ExcelFontSizes.Description;
+
+                row++;
+            }
+
+            return row;
+        }
+
+        /// <summary>Writes each player-group/format category, its divisions (grouped by age group), and
+        /// links to the matching worksheet.</summary>
+        private static void WriteDivisionGroups(XLWorkbook workbook, IXLWorksheet summary, List<EventInfo> eventInfo, int startRow)
+        {
+            var groupedByCategory = eventInfo
+                .GroupBy(e => $"{e.PlayerGroup} {e.Format}")
+                .OrderBy(g => g.Key)
+                .ToList();
+
+            int currentRow = startRow;
+            int divisionNumber = 1;
+
+            foreach (var categoryGroup in groupedByCategory)
+            {
+                currentRow = WriteDivisionCategoryHeader(summary, categoryGroup.Key, currentRow);
+
+                var ageGroups = categoryGroup
+                    .GroupBy(e => e.AgeGroup)
+                    .OrderBy(g => g.Key)
+                    .ToList();
+
+                int ageGroupIndex = 0;
+                foreach (var ageGroup in ageGroups)
+                {
+                    var sheetName = SanitizeSheetName($"{categoryGroup.First().PlayerGroup} {categoryGroup.First().Format} - {ageGroup.Key}");
+                    if (!workbook.Worksheets.TryGetWorksheet(sheetName, out var worksheet))
+                        continue;
+
+                    bool isEvenRow = ageGroupIndex % 2 == 0;
+                    WriteDivisionLinkRow(summary, currentRow, divisionNumber++, categoryGroup.First(), ageGroup.Key, worksheet, isEvenRow);
+
+                    currentRow++;
+                    ageGroupIndex++;
+                }
+
+                currentRow++;
+            }
+        }
+
+        private static int WriteDivisionCategoryHeader(IXLWorksheet summary, string categoryName, int row)
+        {
+            var categoryCell = summary.Cell(row, 1);
+            categoryCell.Value = categoryName;
+            categoryCell.Style.Font.Bold = true;
+            categoryCell.Style.Font.FontSize = ExcelFontSizes.SectionHeader;
+            categoryCell.Style.Font.FontColor = ExcelPalette.HeaderText;
+            categoryCell.Style.Fill.BackgroundColor = ExcelPalette.AccentBlue;
+            categoryCell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            summary.Range(row, 1, row, SummaryColumnCount).Merge();
+            row++;
+
+            summary.Cell(row, 1).Value = "#";
+            summary.Cell(row, 2).Value = "Division";
+            foreach (var cell in summary.Range(row, 1, row, SummaryColumnCount).Cells())
+            {
+                cell.Style.Font.Bold = true;
+                cell.Style.Font.FontColor = ExcelPalette.TitleBackground;
+                cell.Style.Fill.BackgroundColor = ExcelPalette.TableHeaderBackground;
+                cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                cell.Style.Border.BottomBorder = XLBorderStyleValues.Thin;
+            }
+
+            return row + 1;
+        }
+
+        private static void WriteDivisionLinkRow(IXLWorksheet summary, int row, int divisionNumber, EventInfo sampleEvent, string? ageGroup, IXLWorksheet targetWorksheet, bool isEvenRow)
+        {
+            summary.Cell(row, 1).Value = divisionNumber;
+            summary.Cell(row, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+            var linkCell = summary.Cell(row, 2);
+            linkCell.Value = $"{sampleEvent.PlayerGroup} {sampleEvent.Format} - {ageGroup}";
+            linkCell.SetHyperlink(new XLHyperlink($"'{targetWorksheet.Name}'!A1"));
+            linkCell.Style.Font.FontColor = ExcelPalette.AccentBlue;
+            linkCell.Style.Font.Underline = XLFontUnderlineValues.Single;
+
+            if (isEvenRow)
+                summary.Range(row, 1, row, SummaryColumnCount).Style.Fill.BackgroundColor = ExcelPalette.EvenRowBackground;
+        }
+
+        private static readonly char[] _invalidSheetNameChars = [':', '\\', '/', '?', '*', '[', ']'];
+
         private static string SanitizeSheetName(string name)
         {
-            var invalid = new[] { ':', '\\', '/', '?', '*', '[', ']' };
-            var sanitized = string.Concat(name.Select(c => invalid.Contains(c) ? '_' : c)).Trim();
-            return sanitized.Length > 31 ? sanitized[..31] : sanitized;
+            var sanitized = string.Concat(name.Select(c => _invalidSheetNameChars.Contains(c) ? '_' : c)).Trim();
+            return sanitized.Length > MaxExcelSheetNameLength ? sanitized[..MaxExcelSheetNameLength] : sanitized;
         }
 
         // Player names originate from third-party registration data (Pickleball Tournaments / DUPR)
@@ -373,60 +420,67 @@ namespace TournamentDuprRatings.Services
             return _formulaTriggerChars.Contains(value[0]) ? "'" + value : value;
         }
 
-        private static XLColor GetSinglesDuprCellColor(double playerSingles, double lower, double upper)
+        private static XLColor GetSinglesDuprCellColor(double playerRating, double lowerSkillRating, double upperSkillRating)
         {
-            if (playerSingles == 0.0 && upper >= 4.0)
-            {
-                return _noRatingCheckColor;
-            }
+            bool isUnrated = playerRating == DoubleConstants.NoRating;
+            bool isOpenDivision = upperSkillRating >= ExcelRatingThresholds.OpenDivisionRatingThreshold;
 
-            if (playerSingles > upper || playerSingles < lower - 0.500)
-                return _failedCheckColor;
+            if (isUnrated && isOpenDivision)
+                return ExcelPalette.NoRatingCheck;
 
-            return _passedCheckColor;
+            double hardFloor = lowerSkillRating - ExcelRatingThresholds.HardFloorMargin;
+            if (playerRating > upperSkillRating || playerRating < hardFloor)
+                return ExcelPalette.FailedCheck;
+
+            return ExcelPalette.PassedCheck;
         }
 
-        private static XLColor GetDuprCellColor(double playerDoubles, TeamInfo team, bool isPlayer1, double lowerSkillRating, double upperSkillRating)
+        private static XLColor GetDoublesDuprCellColor(double playerRating, TeamInfo team, bool isPlayer1, double lowerSkillRating, double upperSkillRating)
         {
-            double lower = lowerSkillRating;
-            double upper = upperSkillRating;
-            double hardFloor = lower - 0.500;
-            double softFloor = lower - 0.150;
+            double hardFloor = lowerSkillRating - ExcelRatingThresholds.HardFloorMargin;
+            double softFloor = lowerSkillRating - ExcelRatingThresholds.SoftFloorMargin;
 
-            double partnerDoubles = isPlayer1 ? team?.PlayerTwo?.DoublesDuprRating ?? DoubleConstants.NoRating : team?.PlayerOne?.DoublesDuprRating ?? DoubleConstants.NoRating;
-            bool playerUnrated = playerDoubles == 0.0;
-            bool partnerUnrated = partnerDoubles == 0.0;
+            double partnerRating = isPlayer1
+                ? team?.PlayerTwo?.DoublesDuprRating ?? DoubleConstants.NoRating
+                : team?.PlayerOne?.DoublesDuprRating ?? DoubleConstants.NoRating;
 
-            if (team?.PlayerOne?.DoublesDuprRating == 0.0 && team?.PlayerTwo?.DoublesDuprRating == 0.0)
-                return upperSkillRating >= 4.0 ? _failedCheckColor : _passedCheckColor;
+            bool playerUnrated = playerRating == DoubleConstants.NoRating;
+            bool partnerUnrated = partnerRating == DoubleConstants.NoRating;
+            bool bothUnrated = team?.PlayerOne?.DoublesDuprRating == DoubleConstants.NoRating
+                && team?.PlayerTwo?.DoublesDuprRating == DoubleConstants.NoRating;
+
+            if (bothUnrated)
+                return upperSkillRating >= ExcelRatingThresholds.OpenDivisionRatingThreshold ? ExcelPalette.FailedCheck : ExcelPalette.PassedCheck;
 
             if (playerUnrated || partnerUnrated)
-                return GetUnratedColor(playerDoubles, partnerDoubles, lower, upper);
+                return GetUnratedTeamMemberColor(playerRating, partnerRating, lowerSkillRating, upperSkillRating);
 
-            if (playerDoubles > upper)
-                return _failedCheckColor;
+            if (playerRating > upperSkillRating || playerRating < hardFloor)
+                return ExcelPalette.FailedCheck;
 
-            if (playerDoubles < hardFloor)
-                return _failedCheckColor;
+            if (playerRating >= lowerSkillRating)
+                return ExcelPalette.PassedCheck;
 
-            if (playerDoubles >= lower)
-                return _passedCheckColor;
+            bool partnerInRange = partnerRating >= lowerSkillRating && partnerRating <= upperSkillRating;
+            bool teamAverageAcceptable = team?.AverageTeamDupr >= softFloor;
 
-            bool partnerInRange = partnerDoubles >= lower && partnerDoubles <= upper;
-            bool teamAvgAcceptable = team?.AverageTeamDupr >= softFloor;
-
-            return partnerInRange || teamAvgAcceptable ? _passedCheckColor : _failedCheckColor;
+            return partnerInRange || teamAverageAcceptable ? ExcelPalette.PassedCheck : ExcelPalette.FailedCheck;
         }
 
-        private static XLColor GetUnratedColor(double playerDoubles, double partnerDoubles, double lower, double upper)
+        /// <summary>
+        /// Colors a team member when either they or their partner has no DUPR rating yet. In "Open"
+        /// divisions an unrated player always fails; otherwise the rated player (if any) must fall
+        /// within the division's range for the pairing to pass.
+        /// </summary>
+        private static XLColor GetUnratedTeamMemberColor(double playerRating, double partnerRating, double lowerSkillRating, double upperSkillRating)
         {
-            if (upper > 4.0)
-                return _failedCheckColor;
+            if (upperSkillRating > ExcelRatingThresholds.OpenDivisionRatingThreshold)
+                return ExcelPalette.FailedCheck;
 
-            double ratedPlayerDoubles = playerDoubles == 0.0 ? partnerDoubles : playerDoubles;
-            bool ratedPartnerInRange = ratedPlayerDoubles >= lower && ratedPlayerDoubles <= upper;
+            double ratedPlayerRating = playerRating == DoubleConstants.NoRating ? partnerRating : playerRating;
+            bool ratedPlayerInRange = ratedPlayerRating >= lowerSkillRating && ratedPlayerRating <= upperSkillRating;
 
-            return ratedPartnerInRange ? _passedCheckColor : _failedCheckColor;
+            return ratedPlayerInRange ? ExcelPalette.PassedCheck : ExcelPalette.FailedCheck;
         }
     }
 }
