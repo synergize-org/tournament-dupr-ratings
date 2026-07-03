@@ -1,5 +1,6 @@
 using DocumentFormat.OpenXml.Bibliography;
 using DocumentFormat.OpenXml.Office2016.Excel;
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Headers;
 using TournamentDuprRatings.Models;
@@ -9,15 +10,15 @@ namespace TournamentDuprRatings.Services;
 public class DuprService(HttpClient httpClient, string bearerToken)
 {
     // Instance-level (not static) so cached data can never leak between DuprService instances
-    // using different bearer tokens.
-    private readonly Dictionary<string, DuprPlayerInfo> _playerInfoCache = new Dictionary<string, DuprPlayerInfo>();
-    private readonly Dictionary<string, DuprSearchByDuprIdResponse> _duprIdSearchCache = new Dictionary<string, DuprSearchByDuprIdResponse>();
+    // using different bearer tokens. Concurrent because player lookups now run in parallel.
+    private readonly ConcurrentDictionary<string, DuprPlayerInfo> _playerInfoCache = new ConcurrentDictionary<string, DuprPlayerInfo>();
+    private readonly ConcurrentDictionary<string, DuprSearchByDuprIdResponse> _duprIdSearchCache = new ConcurrentDictionary<string, DuprSearchByDuprIdResponse>();
 
     public async Task<DuprPlayerInfo> GetPlayerInfo(string duprId)
     {
-        if (_playerInfoCache.ContainsKey(duprId))
+        if (_playerInfoCache.TryGetValue(duprId, out var cachedInfo))
         {
-            return _playerInfoCache[duprId];
+            return cachedInfo;
         }
 
         var playerIdResponse = await SearchByDuprId(duprId);
@@ -49,9 +50,9 @@ public class DuprService(HttpClient httpClient, string bearerToken)
 
     public async Task<DuprSearchByDuprIdResponse> SearchByDuprId(string duprId)
     {
-        if (_duprIdSearchCache.ContainsKey(duprId))
+        if (_duprIdSearchCache.TryGetValue(duprId, out var cachedResponse))
         {
-            return _duprIdSearchCache[duprId];
+            return cachedResponse;
         }
 
         using var httpRequest = new HttpRequestMessage(HttpMethod.Post, $"https://api.dupr.gg/player/search/byDuprId")
