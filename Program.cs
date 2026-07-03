@@ -1,4 +1,5 @@
 ﻿using Newtonsoft.Json;
+using System.Collections.Concurrent;
 using TournamentDuprRatings.Constants;
 using TournamentDuprRatings.Helpers;
 using TournamentDuprRatings.Models;
@@ -9,6 +10,9 @@ namespace TournamentDuprRatings;
 
 internal static class Program
 {
+    /// <summary>Maximum number of DUPR player lookups allowed to run concurrently.</summary>
+    private const int MaxConcurrentLookups = 5;
+
     private static async Task<int> Main(string[] args)
     {
         LoadTestJsonResultIfProvided(args);
@@ -19,7 +23,7 @@ internal static class Program
         var httpClient = new HttpClient();
         var tournamentService = new PickleballTournamentsService(httpClient);
         var duprService = new DuprService(httpClient, bearerToken);
-        var htmlScraper = new PickleballPlayerScraper();
+        var htmlScraper = new PickleballPlayerScraper(httpClient);
 
         var fullTournamentDetails = await tournamentService.GetEventInfo(tournamentName);
 
@@ -29,8 +33,9 @@ internal static class Program
             return 1;
         }
 
-        // Cache of DUPR lookups shared across every bracket in the tournament
-        var cachedDuprId = new Dictionary<string, DuprPlayerInfo?>();
+        // Cache of DUPR lookups shared across every bracket in the tournament.
+        // Concurrent because lookups within a bracket now run in parallel (capped at MaxConcurrentLookups).
+        var cachedDuprId = new ConcurrentDictionary<string, DuprPlayerInfo?>();
         var eventInfo = new List<EventInfo>();
 
         try
@@ -80,7 +85,7 @@ internal static class Program
         PickleballTournamentsService tournamentService,
         DuprService duprService,
         PickleballPlayerScraper htmlScraper,
-        Dictionary<string, DuprPlayerInfo?> cachedDuprId)
+        ConcurrentDictionary<string, DuprPlayerInfo?> cachedDuprId)
     {
         var currentEvent = new EventInfo
         {
@@ -122,29 +127,40 @@ internal static class Program
     }
 
     /// <summary>
-    /// Looks up DUPR ratings for each unique player. Lookups are sequential (not parallel) so
-    /// disambiguation prompts never interleave.
+    /// Looks up DUPR ratings for each unique player. Lookups run in parallel, capped at
+    /// <see cref="MaxConcurrentLookups"/> concurrent requests, using thread-safe caches.
     /// </summary>
     private static async Task<Dictionary<string, DuprPlayerInfo?>> LookupPlayersAsync(
         List<PlayerEntry> uniquePlayers,
         PickleballPlayerScraper htmlScraper,
         DuprService duprService,
-        Dictionary<string, DuprPlayerInfo?> cachedDuprId)
+        ConcurrentDictionary<string, DuprPlayerInfo?> cachedDuprId)
     {
-        var playerResults = new Dictionary<string, DuprPlayerInfo?>(StringComparer.OrdinalIgnoreCase);
+        var playerResults = new ConcurrentDictionary<string, DuprPlayerInfo?>(StringComparer.OrdinalIgnoreCase);
+        using var throttle = new SemaphoreSlim(MaxConcurrentLookups, MaxConcurrentLookups);
 
-        foreach (var player in uniquePlayers)
+        var lookupTasks = uniquePlayers.Select(async player =>
         {
             if (player.Slug == null)
             {
                 Console.WriteLine($"Skipping player {player.FullName} due to missing slug.");
-                continue;
+                return;
             }
 
-            playerResults[player.FullName] = await LookupSinglePlayerAsync(player, htmlScraper, duprService, cachedDuprId);
-        }
+            await throttle.WaitAsync();
+            try
+            {
+                playerResults[player.FullName] = await LookupSinglePlayerAsync(player, htmlScraper, duprService, cachedDuprId);
+            }
+            finally
+            {
+                throttle.Release();
+            }
+        });
 
-        return playerResults;
+        await Task.WhenAll(lookupTasks);
+
+        return new Dictionary<string, DuprPlayerInfo?>(playerResults, StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -155,7 +171,7 @@ internal static class Program
         PlayerEntry player,
         PickleballPlayerScraper htmlScraper,
         DuprService duprService,
-        Dictionary<string, DuprPlayerInfo?> cachedDuprId)
+        ConcurrentDictionary<string, DuprPlayerInfo?> cachedDuprId)
     {
         Console.WriteLine($"Looking up: https://pickleball.com/players/{player.Slug} ");
 
@@ -187,7 +203,7 @@ internal static class Program
             return null;
         }
 
-        cachedDuprId.Add(playerProfile.DuprId, playerInfo);
+        cachedDuprId.TryAdd(playerProfile.DuprId, playerInfo);
         Console.WriteLine($"Found: {playerInfo.Result.FullName}");
         return playerInfo;
     }
@@ -241,8 +257,14 @@ internal static class Program
         }
 
         var testJsonFile = File.ReadAllText(testJsonResult);
-        //var results = JsonConvert.DeserializeObject<List<EventInfo>>(testJsonFile);
-        //ExcelService.GenerateEventResultsExcel(results, "test");
+        var results = JsonConvert.DeserializeObject<List<EventInfo>>(testJsonFile);
+        if (results == null)
+        {
+            Console.Error.WriteLine($"Failed to deserialize test JSON result from: {testJsonResult}");
+            return;
+        }
+
+        ExcelService.GenerateEventResultsExcel(results, "test");
     }
 
     private static string ResolveBearerToken(string[] args)

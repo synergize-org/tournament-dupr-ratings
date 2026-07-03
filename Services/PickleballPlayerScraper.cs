@@ -1,4 +1,5 @@
 ﻿using HtmlAgilityPack;
+using System.Collections.Concurrent;
 
 namespace TournamentDuprRatings.Services
 {
@@ -7,7 +8,8 @@ namespace TournamentDuprRatings.Services
         private static string _duprIdXpath = "//div[div[normalize-space(text())='DUPR ID']]/span";
         private readonly HttpClient _httpClient;
         private const string BaseUrl = "https://pickleball.com/players/";
-        private static Dictionary<string, PlayerProfile> _cache = new Dictionary<string, PlayerProfile>();
+        // Static and concurrent: shared across instances/runs, and player lookups now run in parallel.
+        private static ConcurrentDictionary<string, PlayerProfile> _cache = new ConcurrentDictionary<string, PlayerProfile>();
 
         public PickleballPlayerScraper(HttpClient httpClient)
         {
@@ -21,9 +23,9 @@ namespace TournamentDuprRatings.Services
 
         public async Task<PlayerProfile> GetPlayerProfileAsync(string playerSlug)
         {
-            if (_cache.ContainsKey(playerSlug))
+            if (_cache.TryGetValue(playerSlug, out var cachedProfile))
             {
-                return _cache[playerSlug];
+                return cachedProfile;
             }
 
             var url = $"{BaseUrl}{Uri.EscapeDataString(playerSlug)}";
