@@ -15,13 +15,13 @@ namespace TournamentDuprRatings.Services
     {
         private const string SinglesFormatName = "Singles";
         private const string SummarySheetName = "Summary";
+
         private const int SummarySheetPosition = 1;
         private const int SummaryColumnCount = 2;
+
         private const int RowsBetweenDivisions = 2;
         private const int PlaceColumnWidth = 8;
 
-        // Per Excel's worksheet formatting guidance, data columns are auto-sized to their content,
-        // then clamped to this range so one unusually short/long value can't shrink or blow out a column.
         private const double MinDataColumnWidth = 10;
         private const double MaxDataColumnWidth = 30;
 
@@ -562,7 +562,7 @@ namespace TournamentDuprRatings.Services
             AddConditionalColorRule(range, "TRUE()", ExcelPalette.FailedCheck);
         }
 
-        private static XLColor GetSinglesDuprCellColor(double playerRating, double lowerSkillRating, double upperSkillRating)
+        internal static XLColor GetSinglesDuprCellColor(double playerRating, double lowerSkillRating, double upperSkillRating)
         {
             bool isUnrated = playerRating == DoubleConstants.NoRating;
             bool isOpenDivision = upperSkillRating >= ExcelRatingThresholds.OpenDivisionRatingThreshold;
@@ -577,7 +577,7 @@ namespace TournamentDuprRatings.Services
             return ExcelPalette.PassedCheck;
         }
 
-        private static XLColor GetDoublesDuprCellColor(double playerRating, TeamInfo team, bool isPlayer1, double lowerSkillRating, double upperSkillRating)
+        internal static XLColor GetDoublesDuprCellColor(double playerRating, TeamInfo team, bool isPlayer1, double lowerSkillRating, double upperSkillRating)
         {
             double hardFloor = lowerSkillRating - ExcelRatingThresholds.HardFloorMargin;
             double softFloor = lowerSkillRating - ExcelRatingThresholds.SoftFloorMargin;
