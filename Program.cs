@@ -258,6 +258,12 @@ internal static class Program
 
         var testJsonFile = File.ReadAllText(testJsonResult);
         var results = JsonConvert.DeserializeObject<List<EventInfo>>(testJsonFile);
+        if (results == null)
+        {
+            Console.Error.WriteLine($"Failed to deserialize test JSON result from: {testJsonResult}");
+            return;
+        }
+
         ExcelService.GenerateEventResultsExcel(results, "test");
     }
 
