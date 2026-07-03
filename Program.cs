@@ -33,8 +33,6 @@ internal static class Program
             return 1;
         }
 
-        // Cache of DUPR lookups shared across every bracket in the tournament.
-        // Concurrent because lookups within a bracket now run in parallel (capped at MaxConcurrentLookups).
         var cachedDuprId = new ConcurrentDictionary<string, DuprPlayerInfo?>();
         var eventInfo = new List<EventInfo>();
 
