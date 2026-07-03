@@ -13,15 +13,18 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
 
       - name: Restore dependencies
-        run: dotnet restore TournamentDuprRatings.csproj
+        run: dotnet restore tournament-dupr-ratings.slnx
 
       - name: Build
-        run: dotnet build TournamentDuprRatings.csproj --configuration Release --no-restore
+        run: dotnet build tournament-dupr-ratings.slnx --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test tournament-dupr-ratings.Tests/TournamentDuprRatings.Tests.csproj --configuration Release --no-build
