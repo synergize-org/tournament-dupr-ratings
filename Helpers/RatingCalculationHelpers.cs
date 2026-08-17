@@ -32,6 +32,17 @@ namespace TournamentDuprRatings.Helpers
                 return (double.Parse(split[0].Trim()), 10.0);
             }
 
+            if (skillGroupLower.Contains("only"))
+            {
+                var split = skillGroupLower.Split("only");
+                var skillGroupValue = double.TryParse(split[0].Trim(), out var parsedSkillGroupValue);
+                if (!skillGroupValue)
+                {
+                    return (double.NaN, double.NaN);
+                }
+                return (parsedSkillGroupValue, parsedSkillGroupValue + 0.5);
+            }
+
             var skillGroupParsed = double.TryParse(skillGroup, out var parsedValue);
 
             if (!skillGroupParsed)
